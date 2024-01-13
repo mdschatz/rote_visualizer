@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "@tweenjs/tween.js": "^21.0.0",
+    "dat.gui": "^0.7.9",
+    "jquery": "^3.7.1",
+    "three": "^0.160.0",
+    "underscore": "^1.13.6"
+  },
+  "devDependencies": {
+    "vite": "^5.0.11"
+  }
+}
