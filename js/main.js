@@ -116,6 +116,79 @@ class DistTensor {
 			gblTensorScene.add(this.data.get(loc));
 		}
 	}
+
+	// Core methods
+	owningProcs(loc) {
+		// Check whether loc is in bounds
+		if (!true) {
+			alert("Supplied invalid location (" + loc.toString() + " for tensor shape " + this.shape.toString());
+		}
+
+		var pLoc = new Map();
+		// Note: Clean this up
+		for (var d = 0; d < this.grid.shape.length; d++) {
+			pLoc[d] = -1;
+		}
+
+
+		for (var d = 0; d < loc.length; d++) {
+			var i = loc[d];
+			var mDist = this.dist[d];
+
+			var lgShape = mDist.map((x) => this.grid.shape[x]);
+			var lgDim = lgShape.reduce(mult, 1);
+			var lp = i % lgDim;
+
+			var gLoc = linear2Multilinear(lp, Shape2Strides(lgShape));
+			for (var gD = 0; gD < gLoc.length; gD++) {
+				pLoc.set(mDist[gD], gLoc[gD]);
+			}
+		}
+
+		var owners = [Array.from({length: this.grid.shape.length}, (x, i) => -1)];
+		for (const [d, i] of pLoc.entries()) {
+			var end = owners.length;
+			for (var j = 0; j < end; j++) {
+				var owner = owners.shift();
+				if (i >= 0) {
+					owner[d] = i;
+					owners.push(owner);
+				} else {
+					for (var k = 0; k < this.grid.shape[d]; k++) {
+						owner[d] = k;
+						owners.push(owner);
+					}
+				}
+			}
+		}
+		return owners;
+	}
+
+	localLoc(globalLoc) {
+		var owners = this.owningProcs(globalLoc);
+		var localLocs = new Map();
+		for (var owner of owners) {
+			var localLoc = [];
+			localLoc.length = this.order;
+
+			for (var i = 0; i < localLoc.length; i++) {
+				localLoc[i] = Math.floor((globalLoc[i] - owner[i]) / this.dist[i].map((x) => this.grid.shape[x]).reduce(mult, 1));
+			}
+			localLocs.set(owner, localLoc);
+		}
+		return localLocs;
+	}
+
+	maxLengths() {
+		var lens = [];
+		lens.length = tensor.order;
+
+		for (var d = 0; d < this.order; d++) {
+			var lgDim = this.dist[d].map((x) => this.grid.shape[x]).reduce(mult, 1);
+			lens[d] = (this.shape[d] > 0 ? Math.floor((this.shape[d] - 1)/lgDim) + 1: 0);
+		}
+		return lens;
+	}
 }
 
 class Params {
@@ -324,19 +397,23 @@ function MapGridLocs2LGridLocs(gridLocs, gridShape, lGridShape, tensorDist){
 
 //NOTE: For purposes of scene rendering, X axis in object is Y axis in scene
 //Maps a global location of the tensor to a location in the scene.
-function MapTensorLoc2SceneLoc(loc, dist, gridShape, lGridShape){
+function MapTensorLoc2SceneLoc(mapTen, loc, dist, gridShape, lGridShape){
 	var sceneDim = [1, 0, 2];
-	var lGridProcOwner = GetOwnerLGridLoc(loc, lGridShape);
+	// var lGridProcOwner = GetOwnerLGridLoc(loc, lGridShape);
+	var owner = mapTen.owningProcs(loc);
+	owner = owner[0];
 
-	var localLoc = GlobalLoc2LocalLoc(lGridProcOwner, loc, lGridShape);
+	// var localLoc = GlobalLoc2LocalLoc(lGridProcOwner, loc, lGridShape);
+	var localLoc = mapTen.localLoc(loc);
+	localLoc = localLoc.values().next().value;
 
-	var maxLocalLengths = MaxLengths(tensor.shape, lGridShape);
+	//var maxLocalLengths = MaxLengths(tensor.shape, lGridShape);
+	var maxLocalLengths = mapTen.maxLengths();
 
 	var sceneLoc = [];
 	sceneLoc.length = 3;
 	for(var i = 0; i < sceneLoc.length; i++)
 		sceneLoc[i] = cube_sz/2;
-
 
 	for(var i = 0; i < 3; i++){
 		if(i >= loc.length)
@@ -358,11 +435,11 @@ function MapTensorLoc2SceneLoc(loc, dist, gridShape, lGridShape){
 		//Now figure out the offset due to the process loc (we have the local size offset stored in 'pad')
 		pad = interGridHigherDimPad;
 		elemSize = elemSize + pad;
-		for(var j = i; j < loc.length; j += 3){
-			sceneLoc[i] += elemSize * lGridProcOwner[j];
+		for (var j = i; j < owner.length; j += 3) {
+			sceneLoc[i] += elemSize * owner[j];
 
 			pad *= interGridHigherDimPadGrowthFactor;
-			elemSize = lGridShape[j] * elemSize + pad;
+			elemSize = mapTen.grid.shape[j] * elemSize + pad;
 		}
 	}
 
@@ -400,10 +477,11 @@ function MapTensorLoc2SceneLocLocal(loc, gridShape){
 
 
 function DistributeTensor(dist, lGridShape) {
+	var mapTen = new DistTensor(tensor.grid, tensor.shape, dist);
 	var tweens = [];
 	for(var loc of tensor.data.keys()) {
 		var cube = tensor.data.get(loc);
-		var fLoc = MapTensorLoc2SceneLoc(loc, dist, tensor.grid.shape, lGridShape);
+		var fLoc = MapTensorLoc2SceneLoc(mapTen, loc, dist, tensor.grid.shape, lGridShape);
 		tweens.push(new TWEEN.Tween(cube.position)
 			.to(fLoc, 2000)
 			.easing(TWEEN.Easing.Exponential.Out)
@@ -420,6 +498,7 @@ function DistributeTensor(dist, lGridShape) {
 function DistributeObjects(dist){
 	if(typeof dist  == 'undefined')
 		return;
+
 	var lGridShape = GetLGridShape(tensor.grid.shape, dist);
 
 	DistributeTensor(dist, lGridShape);
@@ -542,6 +621,7 @@ function RedistributeAG(dist){
 }
 
 function RedistributeP2P(dist){
+	DistributeObjects(dist);
 } 
 
 function RedistributeA2A(dist){
