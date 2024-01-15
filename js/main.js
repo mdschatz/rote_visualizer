@@ -192,10 +192,10 @@ class Params {
 		if((typeof resDist == 'undefined'))
 			return;
 
-		switch(commType){
+		switch(this.commType){
 			case 'rs': RedistributeRS(input1, resDist); break;
 			case 'ag': RedistributeAG(resDist); break;
-			case 'p2p': RedistributeP2P(resDist); break;
+			case 'p2p': DistributeObjects(resDist); break;
 			case 'a2a': RedistributeA2A(resDist); break;
 		}
 		reduceOrScatter = !reduceOrScatter; 
@@ -542,7 +542,6 @@ function RedistributeAG(dist){
 }
 
 function RedistributeP2P(dist){
-	DistributeObjects(dist);
 } 
 
 function RedistributeA2A(dist){
@@ -561,7 +560,7 @@ function GetRedistButtonName(commType){
 
 //Main code to run
 function runme(){
-	document.getElementById(tensorCanvasName).addEventListener('mousemove', onTensorSceneMouseMove, false);
+	//document.getElementById(tensorCanvasName).addEventListener('mousemove', onTensorSceneMouseMove, false);
 
 	//Initializing GUIs
 	var defaultInputs = {'ag': {input1: '0', input2: ''},
@@ -586,9 +585,9 @@ function runme(){
 	var commType = redistGui.add(guiParams, 'commType', {Allgather: 'ag', ReduceScatter: 'rs', Permutation: 'p2p', AllToAll: 'a2a'}).name('Communication Type').onChange( function(value) {
 		input1.name(guiInputStrings[guiParams.commType].input1);
 		input2.name(guiInputStrings[guiParams.commType].input2);
-		redistButton.name(GetRedistButtonName(guiParams.CommunicationType));
+		redistButton.name(GetRedistButtonName(guiParams.commType));
 	});
-	redistButton = redistGui.add(guiParams, 'redistribute').name(GetRedistButtonName(guiParams.CommunicationType));
+	redistButton = redistGui.add(guiParams, 'redistribute').name(GetRedistButtonName(guiParams.commType));
 
 	redistGui.open();
 };

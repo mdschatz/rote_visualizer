@@ -163,7 +163,7 @@ export function GetResultingDist(order, tensorDist, commType, input1, input2, re
 	}else if(commType === 'a2a'){
 		var tDist = String2TensorDist(order, input1);
 
-		if(typeof mDist == 'undefined'){
+		if(typeof tDist == 'undefined'){
 			return undef;
 		}
 		resDist = tDist;
