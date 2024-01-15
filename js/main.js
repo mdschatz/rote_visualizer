@@ -1,6 +1,6 @@
 import { 
 	animate,
-	cubeSize,
+	cube_sz,
     tensorCanvasStart,
     tensorCanvasWidth,
     tensorCanvasHeight,
@@ -29,6 +29,7 @@ import {
 import {
 	TensorDist2String,
 	String2TensorDist,
+	parseIntArray,
 	ParseInput
 } from './input.js';
 import _ from 'underscore';
@@ -39,52 +40,167 @@ var redistGui;
 var redistButton;
 var guiParams;
 
-//Object-related information
-var tensorInfo = {shape: [],
-		  dist: [],
-		  locs: []};
-var gridInfo = {shape: [],
-		locs: [],
-		lGridShape: [],
-		lGridLocs: []};
-
 //Tensor and grid being displayed
 var tensorCubes = [];
-var gridCubes = [];
-
-//For blocking spamming of Redist and Dist buttons
-var haveVisualized = false;
-var haveDistributed = false;
 
 //Should we visualize a reduction or a scatter? (false == reduce)
 var reduceOrScatter = false;
 
-var numActiveTensorTweens;
+var numActiveTweens;
 var canRedistTensor = true;
 
-//Resets the scenes
-function clearScenes(){
-	//Clear tensor info
-	var objsToRemove = _.rest(gblTensorScene.children, 1);
-	_.each(objsToRemove, function ( object){ gblTensorScene.remove(object);});
-	render();
-	tensorCubes.length = [];
-	tensorInfo = {shape: [],
-		      dist: [],
-		      locs: []};
+var tensor;
 
-	gridInfo = {shape: [],
-		    locs: [],
-		    lGridShape: [],
-		    lGridLocs: []};
+function linear2Multilinear(i, strides) {
+	var remainder = i;
+	var loc = [];
+	loc.length = strides.length;
 
-	//Reset gui params
-	haveVisualized = false;
-	haveDistributed = false;
-	reduceOrScatter = false;
-	canRedistTensor = true;
+	for (var j = strides.length - 1; j >= 0; j--) {
+		var dLoc = Math.floor(remainder / strides[j]);
+		remainder -= dLoc * strides[j];
+		loc[j] = dLoc;
+	}
+	return loc;
+}
 
-	redistButton.name(GetRedistButtonName(guiParams.CommunicationType));
+class Grid {
+	constructor(shape = []) {
+		this.type = 'Grid';
+		this.shape = parseIntArray(shape);
+	}
+}
+
+class DistTensor {
+	constructor(grid, shape = [], dist = []) {
+		this.type = 'Tensor';
+		this.grid = grid;
+		this.shape = Array.from(shape);
+		this.strides = Shape2Strides(shape);
+		this.dist = Array.from(dist);
+		this.order = shape.length;
+		this.nelem = shape.reduce(mult, 1);
+		this.haveVisualized = false;
+		this.haveDsitributed = false;
+		this.canRedist = true;
+		this.data = new Map();
+
+		// Initialize data locs
+		for (var i = 0; i < this.nelem; i++) {
+			var loc = linear2Multilinear(i, this.strides);
+			this.data.set(loc, null);
+		}
+	}
+
+	createCubes() {
+		for (var loc of this.data.keys()) {
+			var sceneLoc = MapTensorLoc2SceneLocLocal(loc, this.shape);
+			var color = GetHexColor(this.shape, loc);
+			var cubeColor = new THREE.Color(color[0], color[1], color[2]);
+			var cube = new THREE.Mesh(
+				new THREE.BoxGeometry(cube_sz, cube_sz, cube_sz),
+				new THREE.MeshPhongMaterial({
+					color: new THREE.Color(color[0], color[1], color[2]),
+					specular: cubeColor,
+					shininess: 2
+				}),
+			);
+			cube.name = loc.toString();
+			cube.position.set(sceneLoc.x, sceneLoc.y, sceneLoc.z);
+			this.data.set(loc, cube);
+		}
+	}
+
+	visualize() {
+		for (var loc of this.data.keys()) {
+			gblTensorScene.add(this.data.get(loc));
+		}
+	}
+}
+
+class Params {
+	constructor() {
+		this.defaultInputs = {
+			'ag': {input1: '0', input2: ''},
+			'rs': {input1: '0', input2: '1'},
+			'a2a': {input1: '', input2: ''},
+			'p2p': {input1: '0', input2: ''},
+		};
+		this.tShape = '4,8,10,6';
+		this.gShape = '2,4,5,3';
+		this.tDist = '[(0), (1), (2), (3)]';
+		this.commType = 'rs';
+		this.input1 = this.defaultInputs[this.commType].input1;
+		this.input2 = this.defaultInputs[this.commType].input2;
+	}
+	distribute() {
+		if(!tensor.haveVisualized){
+			alert("You must visualize the grid and tensor first"); 
+			return;
+		} 
+		if(!tensor.canRedist)
+			return;
+		reduceOrScatter = false; 
+		DistributeObjects(tensor.dist);
+		tensor.haveDistributed = true;
+	}
+
+	clearScene(){
+		//Clear tensor info
+		var objsToRemove = _.rest(gblTensorScene.children, 1);
+		_.each(objsToRemove, function (object){ gblTensorScene.remove(object);});
+		render();
+
+		//Reset gui params
+		var params = ParseInput(this.tShape, this.gShape, this.tDist);
+		var grid = new Grid(this.gShape);
+
+		var tShape = parseIntArray(this.tShape);
+		tensor = new DistTensor(grid, tShape, String2TensorDist(tShape.length, this.tDist));
+		tensor.haveVisualized = false;
+		tensor.haveDistributed = false;
+		tensor.reduceOrScatter = false;
+		tensor.canRedist = true;
+
+		redistButton.name(GetRedistButtonName(guiParams.CommunicationType));
+	}
+
+	visualize() {
+		this.clearScene();
+		if(!tensor.canRedist)
+			return;
+		tensor.createCubes();
+		gblTensorScene.add(new THREE.AxesHelper(5));
+
+		tensor.visualize(); 
+		tensor.haveVisualized = true;
+	}
+
+	redistribute() {
+		if(!tensor.haveVisualized){
+			alert("You must visualize the grid and tensor first"); 
+			return;
+		} 
+		if(!tensor.haveDistributed){
+			alert("You must distribute the tensor first"); 
+			return;
+		}
+		if(!tensor.canRedist)
+			return;
+
+		var resDist = GetResultingDist(tensor.order, tensor.dist, this.commType, this.input1, this.input2, reduceOrScatter);
+		if((typeof resDist == 'undefined'))
+			return;
+
+		switch(commType){
+			case 'rs': RedistributeRS(input1, resDist); break;
+			case 'ag': RedistributeAG(resDist); break;
+			case 'p2p': RedistributeP2P(resDist); break;
+			case 'a2a': RedistributeA2A(resDist); break;
+		}
+		reduceOrScatter = !reduceOrScatter; 
+		redistButton.name(GetRedistButtonName(this.commType));
+	}
 }
 
 //Tell which cube is hovered over
@@ -110,33 +226,32 @@ function onTensorSceneMouseMove(event){
 	selectedTensorElem.textContent = msg;
 
 	//Update which tensor dist we are viewing
-	tensorDistInfo.textContent = 'Tensor Distribution: ' + TensorDist2String(tensorInfo.dist);
+	tensorDistInfo.textContent = 'Tensor Distribution: ' + TensorDist2String(tensor.dist);
 }
 
 //Tell which processes being hovered over
-/*
-function onGridSceneMouseMove(event){
-	event.preventDefault();
+//function onGridSceneMouseMove(event){
+//	event.preventDefault();
+//
+//	var vector = new THREE.Vector3( (( event.clientX - this.offsetLeft) / gridCanvasWidth ) * 2 - 1, - (( event.clientY - this.offsetTop) / gridCanvasHeight ) * 2 + 1, 0.5 );
+//
+//	vector.unproject(gblGridCamera);
+//
+//	var msg = 'Process Loc: ';
+//	if(gridCubes.length > 0){
+//		var raycaster = new THREE.Raycaster( gblGridCamera.position, vector.sub( gblGridCamera.position ).normalize() );
+//		var intersects = raycaster.intersectObjects( gridCubes );
+//
+//		if(intersects.length > 0){
+//			msg += '(' + intersects[0].object.gridLoc + ')';
+//			for(var i = 1; i < intersects.length; i++)
+//				msg += ', (' + intersects[i].object.gridLoc + ')';
+//		}
+//	}
+//
+//	selectedGridElem.textContent = msg;
+//}
 
-	var vector = new THREE.Vector3( (( event.clientX - this.offsetLeft) / gridCanvasWidth ) * 2 - 1, - (( event.clientY - this.offsetTop) / gridCanvasHeight ) * 2 + 1, 0.5 );
-
-	vector.unproject(gblGridCamera);
-
-	var msg = 'Process Loc: ';
-	if(gridCubes.length > 0){
-		var raycaster = new THREE.Raycaster( gblGridCamera.position, vector.sub( gblGridCamera.position ).normalize() );
-		var intersects = raycaster.intersectObjects( gridCubes );
-
-		if(intersects.length > 0){
-			msg += '(' + intersects[0].object.gridLoc + ')';
-			for(var i = 1; i < intersects.length; i++)
-				msg += ', (' + intersects[i].object.gridLoc + ')';
-		}
-	}
-
-	selectedGridElem.textContent = msg;
-}
-*/
 
 //Returns list (ordered column major) of locations in a shape shaped tensor
 function GetTensorLocs(shape){
@@ -207,44 +322,6 @@ function MapGridLocs2LGridLocs(gridLocs, gridShape, lGridShape, tensorDist){
 	return lGridLocs;
 };
 
-//Form the tensor cubes to display
-function CreateTensorCubes(){
-	var tensorShape = tensorInfo.shape;
-	var tensorLocs = tensorInfo.locs;
-	var nElems = tensorLocs.length;
-
-	tensorCubes.length = nElems;
-	for(var i = 0; i < nElems; i++){
-		var tensorLoc = tensorLocs[i];
-		var hexColor = GetHexColor(tensorShape, tensorLoc);
-		var cubeColor = new THREE.Color(hexColor[0], hexColor[1], hexColor[2]);
-		var cubeMaterial = new THREE.MeshPhongMaterial({
-								color: cubeColor,
-								specular: cubeColor,
-								shininess: 2
-							       });
-		var cube = new THREE.Mesh(new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize), cubeMaterial);
-		cube['tensorLoc'] = tensorLoc;
-		cube.name = tensorLoc.toString();
-		tensorCubes[i] = cube;
-	}
-}
-
-function InitGlobals(tensorShape, gridShape, tensorDist){
-	var params = ParseInput(tensorShape, gridShape, tensorDist);
-
-	tensorInfo['shape'] = params.tensorShape;
-	tensorInfo['locs'] = GetTensorLocs(tensorInfo.shape);
-
-	gridInfo['shape'] = params.gridShape;
-	gridInfo['locs'] = GetGridLocs(gridInfo.shape);
-
-	CreateTensorCubes();
-
-	//Add Axis to scenes for orientation
-	gblTensorScene.add( new THREE.AxesHelper(5) );
-}
-
 //NOTE: For purposes of scene rendering, X axis in object is Y axis in scene
 //Maps a global location of the tensor to a location in the scene.
 function MapTensorLoc2SceneLoc(loc, dist, gridShape, lGridShape){
@@ -253,12 +330,12 @@ function MapTensorLoc2SceneLoc(loc, dist, gridShape, lGridShape){
 
 	var localLoc = GlobalLoc2LocalLoc(lGridProcOwner, loc, lGridShape);
 
-	var maxLocalLengths = MaxLengths(tensorInfo.shape, lGridShape);
+	var maxLocalLengths = MaxLengths(tensor.shape, lGridShape);
 
 	var sceneLoc = [];
 	sceneLoc.length = 3;
 	for(var i = 0; i < sceneLoc.length; i++)
-		sceneLoc[i] = cubeSize/2;
+		sceneLoc[i] = cube_sz/2;
 
 
 	for(var i = 0; i < 3; i++){
@@ -270,7 +347,7 @@ function MapTensorLoc2SceneLoc(loc, dist, gridShape, lGridShape){
 		//This will give us the localDimensionPerProc padding we need
 
 		var pad = interElemHigherDimPad;
-		var elemSize = cubeSize + pad;
+		var elemSize = cube_sz + pad;
 		for(var j = i; j < loc.length; j += 3){
 			sceneLoc[i] += elemSize * localLoc[j];
 
@@ -301,7 +378,7 @@ function MapTensorLoc2SceneLocLocal(loc, gridShape){
 	var sceneLoc = [];
 	sceneLoc.length = 3;
 	for(var i = 0; i < sceneLoc.length; i++)
-		sceneLoc[i] = cubeSize/2;
+		sceneLoc[i] = cube_sz/2;
 
 	for(var i = 0; i < 3; i++){
 		if( i >= loc.length)
@@ -309,7 +386,7 @@ function MapTensorLoc2SceneLocLocal(loc, gridShape){
 
 		//Update sceneLoc[i]
 		var pad = interElemHigherDimPad;
-		var elemSize = cubeSize + pad;
+		var elemSize = cube_sz + pad;
 		for(var j = i; j < loc.length; j += 3){
 			sceneLoc[i] += elemSize * loc[j];
 
@@ -322,34 +399,28 @@ function MapTensorLoc2SceneLocLocal(loc, gridShape){
 }
 
 
-function DistributeTensor(dist, lGridShape){
-	//Update the global info first
-	tensorInfo.dist = dist;
-
-	//Create the tweens
-	var tensorTweens = [];
-	for(var i = 0; i < tensorCubes.length; i++){
-		var tensorCube = tensorCubes[i];
-
-		var finalLoc = MapTensorLoc2SceneLoc(tensorCube.tensorLoc, dist, gridInfo.shape, lGridShape);
-		tensorTweens.push(new TWEEN.Tween(tensorCube.position)
-					   .to(finalLoc, 2000)
-					   .easing(TWEEN.Easing.Exponential.Out)
-					   .onComplete(CompleteTensorTween));
+function DistributeTensor(dist, lGridShape) {
+	var tweens = [];
+	for(var loc of tensor.data.keys()) {
+		var cube = tensor.data.get(loc);
+		var fLoc = MapTensorLoc2SceneLoc(loc, dist, tensor.grid.shape, lGridShape);
+		tweens.push(new TWEEN.Tween(cube.position)
+			.to(fLoc, 2000)
+			.easing(TWEEN.Easing.Exponential.Out)
+			.onComplete(CompleteTween));
 	}
+	numActiveTweens = tweens.length;
+	tensor.canRedist = false;
 
-	numActiveTensorTweens = tensorTweens.length;
-	canRedistTensor = false;
-
-	//Start the tweens
-	for(var i = 0; i < tensorTweens.length; i++)
-		tensorTweens[i].start();
+	// Start the tweens
+	for (var tween of tweens)
+		tween.start();
 }
 
 function DistributeObjects(dist){
 	if(typeof dist  == 'undefined')
 		return;
-	var lGridShape = GetLGridShape(gridInfo.shape, dist);
+	var lGridShape = GetLGridShape(tensor.grid.shape, dist);
 
 	DistributeTensor(dist, lGridShape);
 }
@@ -374,22 +445,6 @@ function GetOwnerLGridLoc(globalLoc, lGridShape){
 	return ownerLoc;
 }
 
-//Display a tensor in its initial, undistributed view
-function VisualizeTensor(){
-	var tensorShape = tensorInfo.shape;
-	var tensorLocs = tensorInfo.locs;
-	var tensorDist = tensorInfo.dist;
-	var gridShape = gridInfo.shape;
-
-	for(var i = 0; i < tensorLocs.length; i++){
-		var tensorLoc = tensorLocs[i];
-
-		var sceneLoc = MapTensorLoc2SceneLocLocal(tensorLoc, tensorShape);
-		tensorCubes[i].position.set(sceneLoc.x, sceneLoc.y, sceneLoc.z);
-		gblTensorScene.add(tensorCubes[i]);
-	}
-}
-
 //When a tween of Reduce phase of ReduceScatter finished
 function CompleteReduceTween(){
 	var rMode = this.rMode;
@@ -398,7 +453,7 @@ function CompleteReduceTween(){
 
 	//Remove all cubes that were there only for accumulation
 	var thisCubeIndex;
-	for(var i = 0; i < tensorInfo.locs.length; i++){
+	for(var i = 0; i < tensor.locs.length; i++){
 		if(thisLoc.toString() == tensorInfo.locs[i].toString()){
 			thisCubeIndex = i;
 			break;
@@ -422,11 +477,11 @@ function CompleteReduceTween(){
 }
 
 //When a tween on the tensor side finishes
-function CompleteTensorTween(){
+function CompleteTween(){
 	//Enable gui functionality
-	numActiveTensorTweens -= 1;
-	if(numActiveTensorTweens == 0)
-		canRedistTensor = true;
+	numActiveTweens -= 1;
+	if(numActiveTweens == 0)
+		tensor.canRedist = true;
 }
 
 //Mimicks DistributeObjects with minor changes (accumLoc)
@@ -467,7 +522,7 @@ function RedistributeRS(rModeStr, resDist){
 		if(isNaN(rMode)){
 			alert("Malformed Reduce Mode: Reduce Mode is NaN");
 			return;
-		}else if(rMode < 0 || rMode >= tensorInfo.shape.length){
+		}else if(rMode < 0 || rMode >= tensor.order){
 			alert("Malformed Reduce Mode: Reduce Mode " + rMode + " is out of range");
 			return;
 		}
@@ -494,20 +549,6 @@ function RedistributeA2A(dist){
 	DistributeObjects(dist);
 }
 
-function Redistribute(commType, input1, input2){
-	var resDist = GetResultingDist(tensorInfo.shape.length, tensorInfo.dist, commType, input1, input2, reduceOrScatter);
-
-	if((typeof resDist == 'undefined'))
-		return;
-
-	switch(commType){
-		case 'rs': RedistributeRS(input1, resDist); break;
-		case 'ag': RedistributeAG(resDist); break;
-		case 'p2p': RedistributeP2P(resDist); break;
-		case 'a2a': RedistributeA2A(resDist); break;
-	}
-}
-
 //What to display on the Redist button
 function GetRedistButtonName(commType){
 	switch(commType){
@@ -528,73 +569,26 @@ function runme(){
 			     'a2a': {input1: '', input2: ''},
 			     'p2p': {input1: '0', input2: ''}};
 
-	//GUI info
-	//During objects moving, the GUIs are effectively disabled.
-	var Params = function() {
-		this.tensorShape = '4 8 10 6',
-		this.gridShape = '2 4 5 3',
-		this.tensorDist = '[(0), (1), (2), (3)]',
-		this.Distribute = function() {
-			if(!haveVisualized){
-				alert("You must visualize the grid and tensor first"); 
-				return;
-			} 
-			if(!canRedistTensor)
-				return;
-			reduceOrScatter = false; 
-			DistributeObjects(String2TensorDist(tensorInfo.shape.length, this.tensorDist)); 
-			haveDistributed = true;
-	    };
-		this.VisualizeObjects = function() {
-			if(!canRedistTensor)
-				return;
-			clearScenes(); 
-			InitGlobals(this.tensorShape, this.gridShape, this.tensorDist); 
-			VisualizeTensor(); 
-			haveVisualized = true;
-	    };
-
-		//Redist Params
-		this.CommunicationType = 'rs',
-		this.Input1 = defaultInputs[this.CommunicationType].input1,
-		this.Input2 = defaultInputs[this.CommunicationType].input2,
-		this.Redistribute = function() { 
-			if(!haveVisualized){
-				alert("You must visualize the grid and tensor first"); 
-				return;
-			} 
-			if(!haveDistributed){
-				alert("You must distribute the tensor first"); 
-				return;
-			}
-			if(!canRedistTensor)
-				return;
-			Redistribute(this.CommunicationType, this.Input1, this.Input2);
-			reduceOrScatter = !reduceOrScatter; 
-			redistButton.name(GetRedistButtonName(this.CommunicationType));
-        };
-	};
-
 	guiParams = new Params();
 
 	//Add the GUIs
 	gui = new dat.GUI();
-	gui.add(guiParams, 'tensorShape');
-	gui.add(guiParams, 'gridShape');
-	gui.add(guiParams, 'VisualizeObjects').name('Visualize');
-	gui.add(guiParams, 'tensorDist');
-	gui.add(guiParams, 'Distribute');
+	gui.add(guiParams, 'tShape').name('Tensor Shape');
+	gui.add(guiParams, 'gShape').name('Grid Shape');
+	gui.add(guiParams, 'visualize').name('Visualize');
+	gui.add(guiParams, 'tDist').name('Tensor Distribution');
+	gui.add(guiParams, 'distribute').name('Distribute');
 	gui.open();
 
 	redistGui = new dat.GUI();
-	var input1 = redistGui.add(guiParams, 'Input1').name(guiInputStrings[guiParams.CommunicationType].input1);
-	var input2 = redistGui.add(guiParams, 'Input2').name(guiInputStrings[guiParams.CommunicationType].input2);
-	var commType = redistGui.add(guiParams, 'CommunicationType', {Allgather: 'ag', ReduceScatter: 'rs', Permutation: 'p2p', AllToAll: 'a2a'}).name('Comm Type').onChange( function(value) {
-		input1.name(guiInputStrings[guiParams.CommunicationType].input1);
-		input2.name(guiInputStrings[guiParams.CommunicationType].input2);
+	var input1 = redistGui.add(guiParams, 'input1').name(guiInputStrings[guiParams.commType].input1);
+	var input2 = redistGui.add(guiParams, 'input2').name(guiInputStrings[guiParams.commType].input2);
+	var commType = redistGui.add(guiParams, 'commType', {Allgather: 'ag', ReduceScatter: 'rs', Permutation: 'p2p', AllToAll: 'a2a'}).name('Communication Type').onChange( function(value) {
+		input1.name(guiInputStrings[guiParams.commType].input1);
+		input2.name(guiInputStrings[guiParams.commType].input2);
 		redistButton.name(GetRedistButtonName(guiParams.CommunicationType));
 	});
-	redistButton = redistGui.add(guiParams, 'Redistribute').name(GetRedistButtonName(guiParams.CommunicationType));
+	redistButton = redistGui.add(guiParams, 'redistribute').name(GetRedistButtonName(guiParams.CommunicationType));
 
 	redistGui.open();
 };

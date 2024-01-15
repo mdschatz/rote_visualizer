@@ -22,8 +22,8 @@ export var interGridHigherDimPadGrowthFactor = 1.2;
 export var interElemHigherDimPad = .5;
 export var interElemHigherDimPadGrowthFactor = 2;
 //Size of the cube representing an element
-export var cubeSize = 1;
-huh
+export var cube_sz = 1;
+
 ////////////////////////////////////////////
 ////////    Scene Rending info   ///////////
 ////////////////////////////////////////////
@@ -40,7 +40,7 @@ export var tensorCanvasWidth = $(jqTensorCanvasName).width();
 
 //Necessary objects in the scene
 export var gblTensorScene = new THREE.Scene();
-gblTensorScene.background = new THREE.Color(0xffffff);
+gblTensorScene.background = new THREE.Color(0x000000);
 export var gblTensorCamera = new THREE.PerspectiveCamera( 75, tensorCanvasWidth / tensorCanvasHeight, 1, 1600 );
 gblTensorCamera.up = new THREE.Vector3(0, -1, 0);
 gblTensorCamera.position.z = -30;
@@ -77,7 +77,7 @@ gblTensorScene.add(tensorPointLight);
 
 //Rendering functions
 export var render = function () {
-	//tensorPointLight.position.set(gblTensorCamera.position);
+//	tensorPointLight.position.set(gblTensorCamera.position);
 
 	tensorControls.update();
 
