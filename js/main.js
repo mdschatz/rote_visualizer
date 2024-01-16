@@ -105,6 +105,7 @@ class DistTensor {
 				}),
 			);
 			cube.name = loc.toString();
+			cube['tLoc'] = loc;
 			cube.position.set(sceneLoc.x, sceneLoc.y, sceneLoc.z);
 			this.data.set(loc, cube);
 		}
@@ -276,20 +277,22 @@ class Params {
 }
 
 //Tell which cube is hovered over
-function onTensorSceneMouseMove(event){
+function onSceneMouseMove(event){
 	event.preventDefault();
+	if (typeof tensor == 'undefined')
+		return;
 
 	var vector = new THREE.Vector3( (( event.clientX -this.offsetLeft) / tensorCanvasWidth ) * 2 - 1, - ( (event.clientY - this.offsetTop)/ tensorCanvasHeight ) * 2 + 1, 0.5 );
 
 	vector.unproject(gblTensorCamera);
 
 	var msg = 'Global Loc: ';
-	if(tensorCubes.length > 0){
+	if(tensor.data.size > 0){
 		var raycaster = new THREE.Raycaster( gblTensorCamera.position, vector.sub( gblTensorCamera.position ).normalize() );
-		var intersects = raycaster.intersectObjects( tensorCubes );
+		var intersects = raycaster.intersectObjects( [...tensor.data.values()] );
 
 		if(intersects.length > 0){
-			msg += '(' + intersects[0].object.tensorLoc + ')';
+			msg += '(' + intersects[0].object.tLoc + ')';
 		}
 
 	}
@@ -515,7 +518,7 @@ function GetRedistButtonName(commType){
 
 //Main code to run
 function runme(){
-	//document.getElementById(tensorCanvasName).addEventListener('mousemove', onTensorSceneMouseMove, false);
+	document.getElementById(tensorCanvasName).addEventListener('mousemove', onSceneMouseMove, false);
 
 	//Initializing GUIs
 	var defaultInputs = {'ag': {input1: '0', input2: ''},
