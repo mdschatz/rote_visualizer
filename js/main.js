@@ -12,10 +12,10 @@ import {
 	selectedTensorElem,
 	tensorControls,
 	render,
-	interGridHigherDimPad,
-	interGridHigherDimPadGrowthFactor,
-	interElemHigherDimPad,
-	interElemHigherDimPadGrowthFactor,
+	pad_elem,
+	pad_grid,
+	growth_elem,
+	growth_grid,
 } from './globals.js';
 import * as THREE from 'three';
 import * as dat from 'dat.gui';
@@ -63,10 +63,18 @@ function linear2Multilinear(i, strides) {
 	return loc;
 }
 
+function multilinear2linear(loc, strides) {
+	var linLoc = 0;
+	for (var i = 0; i < loc.length; i++) {
+		linLoc += loc[i] * strides[i];
+	}
+	return linLoc;
+}
+
 class Grid {
 	constructor(shape = []) {
 		this.type = 'Grid';
-		this.shape = parseIntArray(shape);
+		this.shape = shape;
 	}
 }
 
@@ -92,8 +100,10 @@ class DistTensor {
 	}
 
 	createCubes() {
+		// Note: temp hack
+		var mapTen = new DistTensor(new Grid([1, 1]), this.shape, this.dist);
 		for (var loc of this.data.keys()) {
-			var sceneLoc = MapTensorLoc2SceneLocLocal(loc, this.shape);
+			var sceneLoc = MapTensorLoc2SceneLoc(mapTen, loc);
 			var color = GetHexColor(this.shape, loc);
 			var cubeColor = new THREE.Color(color[0], color[1], color[2]);
 			var cube = new THREE.Mesh(
@@ -119,11 +129,6 @@ class DistTensor {
 
 	// Core methods
 	owningProcs(loc) {
-		// Check whether loc is in bounds
-		if (!true) {
-			alert("Supplied invalid location (" + loc.toString() + " for tensor shape " + this.shape.toString());
-		}
-
 		var pLoc = new Map();
 		// Note: Clean this up
 		for (var d = 0; d < this.grid.shape.length; d++) {
@@ -172,11 +177,20 @@ class DistTensor {
 			localLoc.length = this.order;
 
 			for (var i = 0; i < localLoc.length; i++) {
-				localLoc[i] = Math.floor((globalLoc[i] - owner[i]) / this.dist[i].map((x) => this.grid.shape[x]).reduce(mult, 1));
+				var lgShape = this.dist[i].map((x) => this.grid.shape[x]).reverse();
+				var lgLoc = this.dist[i].map((x) => owner[x]).reverse();
+				var lgOwnerLoc = multilinear2linear(lgLoc, Shape2Strides(lgShape));
+
+				localLoc[i] = Math.floor((globalLoc[i] - lgOwnerLoc) / lgShape.reduce(mult, 1));
 			}
 			localLocs.set(owner, localLoc);
 		}
 		return localLocs;
+	}
+
+	maxLength(d) {
+		var lgDim = this.dist[d].map((x) => this.grid.shape[x]).reduce(mult, 1);
+		return (this.shape[d] > 0 ? Math.floor((this.shape[d] - 1)/lgDim) + 1: 0);
 	}
 
 	maxLengths() {
@@ -184,8 +198,7 @@ class DistTensor {
 		lens.length = tensor.order;
 
 		for (var d = 0; d < this.order; d++) {
-			var lgDim = this.dist[d].map((x) => this.grid.shape[x]).reduce(mult, 1);
-			lens[d] = (this.shape[d] > 0 ? Math.floor((this.shape[d] - 1)/lgDim) + 1: 0);
+			lens[d] = this.maxLength(d);
 		}
 		return lens;
 	}
@@ -196,13 +209,13 @@ class Params {
 		this.defaultInputs = {
 			'ag': {input1: '0', input2: ''},
 			'rs': {input1: '0', input2: '1'},
-			'a2a': {input1: '', input2: ''},
+			'a2a': {input1: '[(1), (0)]', input2: ''},
 			'p2p': {input1: '0', input2: ''},
 		};
-		this.tShape = '4,8,10,6';
-		this.gShape = '2,4,5,3';
-		this.tDist = '[(0), (1), (2), (3)]';
-		this.commType = 'rs';
+		this.tShape = '4,8';
+		this.gShape = '2,4';
+		this.tDist = '[(0), (1)]';
+		this.commType = 'a2a';
 		this.input1 = this.defaultInputs[this.commType].input1;
 		this.input2 = this.defaultInputs[this.commType].input2;
 	}
@@ -213,6 +226,7 @@ class Params {
 		} 
 		if(!tensor.canRedist)
 			return;
+		console.log("Distributing");
 		reduceOrScatter = false; 
 		DistributeObjects(tensor.dist);
 		tensor.haveDistributed = true;
@@ -226,7 +240,7 @@ class Params {
 
 		//Reset gui params
 		var params = ParseInput(this.tShape, this.gShape, this.tDist);
-		var grid = new Grid(this.gShape);
+		var grid = new Grid(parseIntArray(this.gShape));
 
 		var tShape = parseIntArray(this.tShape);
 		tensor = new DistTensor(grid, tShape, String2TensorDist(tShape.length, this.tDist));
@@ -260,7 +274,7 @@ class Params {
 		}
 		if(!tensor.canRedist)
 			return;
-
+		console.log("Redistributing");
 		var resDist = GetResultingDist(tensor.order, tensor.dist, this.commType, this.input1, this.input2, reduceOrScatter);
 		if((typeof resDist == 'undefined'))
 			return;
@@ -305,79 +319,33 @@ function onSceneMouseMove(event){
 
 //NOTE: For purposes of scene rendering, X axis in object is Y axis in scene
 //Maps a global location of the tensor to a location in the scene.
-function MapTensorLoc2SceneLoc(mapTen, loc, dist, gridShape) {
-	var sceneDim = [1, 0, 2];
+function MapTensorLoc2SceneLoc(mapTen, loc) {
+	if (loc.length > 3)
+		alert("Can only support <=3-D tensors");
+
 	var owner = mapTen.owningProcs(loc);
 	owner = owner[0];
 
 	var localLoc = mapTen.localLoc(loc);
 	localLoc = localLoc.values().next().value;
 
-	var maxLocalLengths = mapTen.maxLengths();
+	var maxLens = mapTen.maxLengths();
 
-	var sceneLoc = [];
-	sceneLoc.length = 3;
-	for(var i = 0; i < sceneLoc.length; i++)
-		sceneLoc[i] = cube_sz/2;
+	var sceneLoc = Array(3).fill(cube_sz / 2.0);
 
-	for(var i = 0; i < 3; i++){
-		if(i >= loc.length)
-			break;
-
-		//Update sceneLoc[i]
-		//First determine local offset
-		//This will give us the localDimensionPerProc padding we need
-
-		var pad = interElemHigherDimPad;
-		var elemSize = cube_sz + pad;
-		for(var j = i; j < loc.length; j += 3){
-			sceneLoc[i] += elemSize * localLoc[j];
-
-			pad *= interElemHigherDimPadGrowthFactor;
-			elemSize = maxLocalLengths[j] * elemSize + pad;
+	for(var i = 0; i < 3 && i < loc.length; i++){
+		// Offset into proc
+		for (var j = i; j < mapTen.grid.shape.length; j += 3) {
+			var gridLen = pad_elem + maxLens[j] * (cube_sz + pad_elem);
+			sceneLoc[i] += owner[j] > 0 ? owner[j] * (gridLen + pad_grid) : 0;
 		}
-
-		//Now figure out the offset due to the process loc (we have the local size offset stored in 'pad')
-		pad = interGridHigherDimPad;
-		elemSize = elemSize + pad;
-		for (var j = i; j < owner.length; j += 3) {
-			sceneLoc[i] += elemSize * owner[j];
-
-			pad *= interGridHigherDimPadGrowthFactor;
-			elemSize = mapTen.grid.shape[j] * elemSize + pad;
+		// Offset into grid
+		for (var j = i; j < localLoc.length; j += 3) {
+			sceneLoc[i] += localLoc[j] > 0 ? localLoc[j] * (cube_sz + pad_elem) : 0;
 		}
 	}
-
-	return new THREE.Vector3(sceneLoc[sceneDim[0]], sceneLoc[sceneDim[1]], sceneLoc[sceneDim[2]]);
-}
-
-//NOTE: Hack for the initial grid
-//NOTE: For purposes of scene rendering, X axis in object is Y axis in scene
-//Hack is for initial visualization.  Resembles MapTensorLoc2SceneLoc
-function MapTensorLoc2SceneLocLocal(loc, gridShape){
-	var sceneDim = [1, 0, 2];
-
-	var sceneLoc = [];
-	sceneLoc.length = 3;
-	for(var i = 0; i < sceneLoc.length; i++)
-		sceneLoc[i] = cube_sz/2;
-
-	for(var i = 0; i < 3; i++){
-		if( i >= loc.length)
-			break;
-
-		//Update sceneLoc[i]
-		var pad = interElemHigherDimPad;
-		var elemSize = cube_sz + pad;
-		for(var j = i; j < loc.length; j += 3){
-			sceneLoc[i] += elemSize * loc[j];
-
-			pad *= interElemHigherDimPadGrowthFactor;
-			elemSize = gridShape[j] * elemSize + pad;
-		}
-	}
-
-	return new THREE.Vector3(sceneLoc[sceneDim[0]], sceneLoc[sceneDim[1]], sceneLoc[sceneDim[2]]);
+	// Permute for visual matching
+	return new THREE.Vector3(sceneLoc[1], sceneLoc[0], sceneLoc[2]);
 }
 
 function DistributeObjects(dist){
@@ -388,7 +356,7 @@ function DistributeObjects(dist){
 	var tweens = [];
 	for(var loc of tensor.data.keys()) {
 		var cube = tensor.data.get(loc);
-		var fLoc = MapTensorLoc2SceneLoc(mapTen, loc, dist, tensor.grid.shape);
+		var fLoc = MapTensorLoc2SceneLoc(mapTen, loc);
 		tweens.push(new TWEEN.Tween(cube.position)
 			.to(fLoc, 2000)
 			.easing(TWEEN.Easing.Exponential.Out)

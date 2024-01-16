@@ -18,6 +18,10 @@ export var guiInputStrings = {
 
 //Rendering constants
 //Space between higher dimensions and their growth factors (when mapping multiple modes to 1)
+export var pad_elem = 0.5;
+export var pad_grid = 6;
+export var growth_elem = 2;
+export var growth_grid = 1.2;
 export var interGridHigherDimPad = 6;
 export var interGridHigherDimPadGrowthFactor = 1.2;
 export var interElemHigherDimPad = .5;
