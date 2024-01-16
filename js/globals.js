@@ -9,11 +9,12 @@ import $ from 'jquery';
 
 //GUI-related globals
 
-export var guiInputStrings = {ag:  {input1: 'Mode',              input2: 'IGNORE'},
-		       rs:  {input1: 'Reduce Mode',       input2: 'Scatter Mode'},
-		       p2p: {input1: 'Permute Mode',      input2: 'Mode Dist'},
-		       a2a: {input1: 'Final tensor dist', input2: 'IGNORE'}
-		   };
+export var guiInputStrings = {
+	ag:  {input1: 'Mode',              input2: 'IGNORE'},
+	rs:  {input1: 'Reduce Mode',       input2: 'Scatter Mode'},
+	p2p: {input1: 'Permute Mode',      input2: 'Mode Dist'},
+	a2a: {input1: 'Final tensor dist', input2: 'IGNORE'}
+};
 
 //Rendering constants
 //Space between higher dimensions and their growth factors (when mapping multiple modes to 1)
@@ -77,8 +78,6 @@ gblTensorScene.add(tensorPointLight);
 
 //Rendering functions
 export var render = function () {
-//	tensorPointLight.position.set(gblTensorCamera.position);
-
 	tensorControls.update();
 
 	tensorRenderer.render(gblTensorScene, gblTensorCamera);

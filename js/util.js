@@ -27,19 +27,6 @@ export function mult(a,b){
 	return a*b;
 }
 
-export function MaxLength(mode, tensorShape, lGridShape){
-	return (tensorShape[mode] > 0 ? Math.floor((tensorShape[mode] - 1)/lGridShape[mode]) + 1 : 0 );
-}
-
-export function MaxLengths(tensorShape, lGridShape){
-	var lengths = [];
-	lengths.length = tensorShape.length;
-	for(var i = 0; i < lengths.length; i++){
-		lengths[i] = MaxLength(i, tensorShape, lGridShape);
-	}
-	return lengths;
-}
-
 export function Shape2Strides(shape){
 	var strides = [];
 	strides.length = shape.length;

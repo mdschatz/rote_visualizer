@@ -21,7 +21,6 @@ import * as THREE from 'three';
 import * as dat from 'dat.gui';
 import {
 	mult,
-	MaxLengths,
 	Shape2Strides,
 	GetHexColor,
 	GetResultingDist,
@@ -282,7 +281,6 @@ function onTensorSceneMouseMove(event){
 
 	var vector = new THREE.Vector3( (( event.clientX -this.offsetLeft) / tensorCanvasWidth ) * 2 - 1, - ( (event.clientY - this.offsetTop)/ tensorCanvasHeight ) * 2 + 1, 0.5 );
 
-	// projector.unprojectVector( vector, gblTensorCamera );
 	vector.unproject(gblTensorCamera);
 
 	var msg = 'Global Loc: ';
@@ -302,112 +300,16 @@ function onTensorSceneMouseMove(event){
 	tensorDistInfo.textContent = 'Tensor Distribution: ' + TensorDist2String(tensor.dist);
 }
 
-//Tell which processes being hovered over
-//function onGridSceneMouseMove(event){
-//	event.preventDefault();
-//
-//	var vector = new THREE.Vector3( (( event.clientX - this.offsetLeft) / gridCanvasWidth ) * 2 - 1, - (( event.clientY - this.offsetTop) / gridCanvasHeight ) * 2 + 1, 0.5 );
-//
-//	vector.unproject(gblGridCamera);
-//
-//	var msg = 'Process Loc: ';
-//	if(gridCubes.length > 0){
-//		var raycaster = new THREE.Raycaster( gblGridCamera.position, vector.sub( gblGridCamera.position ).normalize() );
-//		var intersects = raycaster.intersectObjects( gridCubes );
-//
-//		if(intersects.length > 0){
-//			msg += '(' + intersects[0].object.gridLoc + ')';
-//			for(var i = 1; i < intersects.length; i++)
-//				msg += ', (' + intersects[i].object.gridLoc + ')';
-//		}
-//	}
-//
-//	selectedGridElem.textContent = msg;
-//}
-
-
-//Returns list (ordered column major) of locations in a shape shaped tensor
-function GetTensorLocs(shape){
-	var locs = [];
-
-	var nElems = shape.reduce(mult, 1);
-	var strides = Shape2Strides(shape);
-
-	for(var i = 0; i < nElems; i++){
-		var remainder = i;
-		var loc = [];
-		loc.length = strides.length;
-
-		for(var j = strides.length - 1; j >= 0; j--){
-			var modeLoc = Math.floor(remainder / strides[j]);
-			remainder -= modeLoc * strides[j];
-			loc[j] = modeLoc;
-		}
-		locs.push(loc);
-	}
-	return locs;
-}
-
-function GetGridLocs(shape){
-	return GetTensorLocs(shape);
-}
-
-//Given a grid and the distribution, figure out what the logical view is
-function GetLGridShape(gridShape, tensorDist){
-	var lGridShape = [];
-	lGridShape.length = tensorDist.length;
-
-	for(var i = 0; i < lGridShape.length; i++){
-		var modeDist = tensorDist[i];
-		if(modeDist.length == 0){
-			lGridShape[i] = 1;
-		} else{
-			var lModeDim = modeDist.reduce(function(a, b){return a*gridShape[b];}, 1);
-			lGridShape[i] = lModeDim;
-		}
-	}
-	return lGridShape;
-}
-
-//Given a Loc in the grid, map it to a Loc in the LGrid
-function MapGridLocs2LGridLocs(gridLocs, gridShape, lGridShape, tensorDist){
-	var lGridLocs = [];
-
-	for(var i = 0; i < gridLocs.length; i++){
-		var gridLoc = gridLocs[i];
-
-		var lGridLoc = [];
-		lGridLoc.length = lGridShape.length;
-		for(var j = 0; j < lGridShape.length; j++){
-			var modeDist = tensorDist[j];
-			var gridSlice = modeDist.map(function(a){return gridShape[a];});
-			var gridSliceStrides = Shape2Strides(gridSlice);
-			var gridSliceLoc = modeDist.map(function(a){return gridLoc[a];});
-
-			//Can't figure out how to one line this
-			var counter = 0;
-			for(var k = 0; k < modeDist.length; k++)
-				counter += gridSliceLoc[k] * gridSliceStrides[k];
-			lGridLoc[j] = counter;
-		}
-		lGridLocs.push(lGridLoc);
-	}
-	return lGridLocs;
-};
-
 //NOTE: For purposes of scene rendering, X axis in object is Y axis in scene
 //Maps a global location of the tensor to a location in the scene.
-function MapTensorLoc2SceneLoc(mapTen, loc, dist, gridShape, lGridShape){
+function MapTensorLoc2SceneLoc(mapTen, loc, dist, gridShape) {
 	var sceneDim = [1, 0, 2];
-	// var lGridProcOwner = GetOwnerLGridLoc(loc, lGridShape);
 	var owner = mapTen.owningProcs(loc);
 	owner = owner[0];
 
-	// var localLoc = GlobalLoc2LocalLoc(lGridProcOwner, loc, lGridShape);
 	var localLoc = mapTen.localLoc(loc);
 	localLoc = localLoc.values().next().value;
 
-	//var maxLocalLengths = MaxLengths(tensor.shape, lGridShape);
 	var maxLocalLengths = mapTen.maxLengths();
 
 	var sceneLoc = [];
@@ -419,7 +321,7 @@ function MapTensorLoc2SceneLoc(mapTen, loc, dist, gridShape, lGridShape){
 		if(i >= loc.length)
 			break;
 
-		//Upate sceneLoc[i]
+		//Update sceneLoc[i]
 		//First determine local offset
 		//This will give us the localDimensionPerProc padding we need
 
@@ -475,13 +377,15 @@ function MapTensorLoc2SceneLocLocal(loc, gridShape){
 	return new THREE.Vector3(sceneLoc[sceneDim[0]], sceneLoc[sceneDim[1]], sceneLoc[sceneDim[2]]);
 }
 
+function DistributeObjects(dist){
+	if(typeof dist  == 'undefined')
+		return;
 
-function DistributeTensor(dist, lGridShape) {
 	var mapTen = new DistTensor(tensor.grid, tensor.shape, dist);
 	var tweens = [];
 	for(var loc of tensor.data.keys()) {
 		var cube = tensor.data.get(loc);
-		var fLoc = MapTensorLoc2SceneLoc(mapTen, loc, dist, tensor.grid.shape, lGridShape);
+		var fLoc = MapTensorLoc2SceneLoc(mapTen, loc, dist, tensor.grid.shape);
 		tweens.push(new TWEEN.Tween(cube.position)
 			.to(fLoc, 2000)
 			.easing(TWEEN.Easing.Exponential.Out)
@@ -493,35 +397,6 @@ function DistributeTensor(dist, lGridShape) {
 	// Start the tweens
 	for (var tween of tweens)
 		tween.start();
-}
-
-function DistributeObjects(dist){
-	if(typeof dist  == 'undefined')
-		return;
-
-	var lGridShape = GetLGridShape(tensor.grid.shape, dist);
-
-	DistributeTensor(dist, lGridShape);
-}
-
-//Convert a global location to a process's local one
-function GlobalLoc2LocalLoc(ownerLoc, globalLoc, lGridShape){
-	var localLoc = [];
-	localLoc.length = globalLoc.length;
-
-	for(var i = 0; i < localLoc.length; i++){
-		localLoc[i] = Math.floor((globalLoc[i] - ownerLoc[i]) / lGridShape[i]);
-	}
-	return localLoc;
-}
-
-//Figure out who owns the global loc element
-function GetOwnerLGridLoc(globalLoc, lGridShape){
-	var ownerLoc = [];
-	ownerLoc.length = globalLoc.length;
-	for(var i = 0; i < ownerLoc.length; i++)
-		ownerLoc[i] = globalLoc[i] % lGridShape[i];
-	return ownerLoc;
 }
 
 //When a tween of Reduce phase of ReduceScatter finished
