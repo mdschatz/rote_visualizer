@@ -64,6 +64,9 @@ function linear2Multilinear(i, strides) {
 }
 
 function multilinear2linear(loc, strides) {
+	if (typeof loc == "number")
+		return loc;
+
 	var linLoc = 0;
 	for (var i = 0; i < loc.length; i++) {
 		linLoc += loc[i] * strides[i];
@@ -71,17 +74,73 @@ function multilinear2linear(loc, strides) {
 	return linLoc;
 }
 
+class Proc {
+	contructor() {
+		this.shape = null;
+		this.strides = null;
+		this.order = null;
+		this.nelem = null;
+		this.data = null;
+		this.dataKeys = null;
+	}
+
+	initData(shape) {
+		this.shape = Array.from(shape);
+		this.strides = Shape2Strides(this.shape);
+		this.order = this.shape.length;
+		this.nelem = shape.reduce(mult, 1);
+		this.data = new Map();
+
+		// Initialize data locs
+		var strides = Shape2Strides(this.shape);
+		for (var i = 0; i < this.nelem; i++) {
+			var loc = linear2Multilinear(i, strides);
+			this.setData(loc, null);
+		}
+	}
+
+	attachCube(loc, cube) {
+		this.setData(loc, cube);
+	}
+
+	setData(loc, data) {
+		var linLoc = multilinear2linear(loc, this.strides);
+		return this.data.set(linLoc, data);
+	}
+
+	getData(loc) {
+		return this.data.get(multilinear2linear(loc, this.strides));
+	}
+}
+
 class Grid {
 	constructor(shape = []) {
 		this.type = 'Grid';
-		this.shape = shape;
+		this.shape = Array.from(shape);
+		this.strides = Shape2Strides(this.shape);
+		this.nprocs = shape.reduce(mult, 1);
+		this.procs = new Map();
+
+		var gStrides = Shape2Strides(this.shape);
+		for (var p = 0; p < this.nprocs; p++) {
+			var pLoc = linear2Multilinear(p, gStrides);
+			this.setProc(pLoc, new Proc());
+		}
+	}
+
+	setProc(loc, proc) {
+		var linLoc = multilinear2linear(loc, this.strides);
+		return this.procs.set(linLoc, proc);
+	}
+
+	getProc(loc) {
+		return this.procs.get(multilinear2linear(loc, this.strides));
 	}
 }
 
 class DistTensor {
-	constructor(grid, shape = [], dist = []) {
+	constructor(gShape = [], shape = [], dist = []) {
 		this.type = 'Tensor';
-		this.grid = grid;
 		this.shape = Array.from(shape);
 		this.strides = Shape2Strides(shape);
 		this.dist = Array.from(dist);
@@ -90,40 +149,47 @@ class DistTensor {
 		this.haveVisualized = false;
 		this.haveDsitributed = false;
 		this.canRedist = true;
-		this.data = new Map();
+		this.grid = new Grid(gShape);
 
-		// Initialize data locs
-		for (var i = 0; i < this.nelem; i++) {
-			var loc = linear2Multilinear(i, this.strides);
-			this.data.set(loc, null);
+		// Initialize procs
+		var gStrides = Shape2Strides(gShape);
+		for (var p = 0; p < this.grid.nprocs; p++) {
+			var pLoc = linear2Multilinear(p, gStrides);
+			this.grid.getProc(pLoc).initData(this.localShape(pLoc));
 		}
 	}
 
 	createCubes() {
-		// Note: temp hack
-		var mapTen = new DistTensor(new Grid([1, 1]), this.shape, this.dist);
-		for (var loc of this.data.keys()) {
-			var sceneLoc = MapTensorLoc2SceneLoc(mapTen, loc);
-			var color = GetHexColor(this.shape, loc);
-			var cubeColor = new THREE.Color(color[0], color[1], color[2]);
-			var cube = new THREE.Mesh(
-				new THREE.BoxGeometry(cube_sz, cube_sz, cube_sz),
-				new THREE.MeshPhongMaterial({
-					color: new THREE.Color(color[0], color[1], color[2]),
-					specular: cubeColor,
-					shininess: 2
-				}),
-			);
-			cube.name = loc.toString();
-			cube['tLoc'] = loc;
-			cube.position.set(sceneLoc.x, sceneLoc.y, sceneLoc.z);
-			this.data.set(loc, cube);
+		var strides = Shape2Strides(this.shape);
+		for (var i = 0; i < this.nelem; i++) {
+			var gLoc = linear2Multilinear(i, strides);
+			var localLocs = this.localLocs(gLoc);
+			for (const [owner, loc] of localLocs.entries()) {
+				var color = GetHexColor(this.shape, gLoc);
+				var cubeColor = new THREE.Color(color[0], color[1], color[2]);
+				var cube = new THREE.Mesh(
+					new THREE.BoxGeometry(cube_sz, cube_sz, cube_sz),
+					new THREE.MeshPhongMaterial({
+						color: new THREE.Color(color[0], color[1], color[2]),
+						specular: cubeColor,
+						shininess: 2
+					}),
+				);
+				cube.name = loc.toString();
+				cube['tLoc'] = loc;
+
+				var sceneLoc = MapTensorLoc2SceneLoc(this, loc, owner);
+				cube.position.set(sceneLoc.x, sceneLoc.y, sceneLoc.z);
+				this.grid.getProc(owner).setData(loc, cube);
+			}
 		}
 	}
 
 	visualize() {
-		for (var loc of this.data.keys()) {
-			gblTensorScene.add(this.data.get(loc));
+		for (const [pLoc, p] of this.grid.procs.entries()) {
+			for (const [cLoc, cube] of p.data.entries()) {
+				gblTensorScene.add(cube);
+			}
 		}
 	}
 
@@ -134,7 +200,6 @@ class DistTensor {
 		for (var d = 0; d < this.grid.shape.length; d++) {
 			pLoc[d] = -1;
 		}
-
 
 		for (var d = 0; d < loc.length; d++) {
 			var i = loc[d];
@@ -169,7 +234,7 @@ class DistTensor {
 		return owners;
 	}
 
-	localLoc(globalLoc) {
+	localLocs(globalLoc) {
 		var owners = this.owningProcs(globalLoc);
 		var localLocs = new Map();
 		for (var owner of owners) {
@@ -177,8 +242,8 @@ class DistTensor {
 			localLoc.length = this.order;
 
 			for (var i = 0; i < localLoc.length; i++) {
-				var lgShape = this.dist[i].map((x) => this.grid.shape[x]).reverse();
-				var lgLoc = this.dist[i].map((x) => owner[x]).reverse();
+				var lgShape = this.dist[i].map((x) => this.grid.shape[x]);
+				var lgLoc = this.dist[i].map((x) => owner[x]);
 				var lgOwnerLoc = multilinear2linear(lgLoc, Shape2Strides(lgShape));
 
 				localLoc[i] = Math.floor((globalLoc[i] - lgOwnerLoc) / lgShape.reduce(mult, 1));
@@ -186,6 +251,23 @@ class DistTensor {
 			localLocs.set(owner, localLoc);
 		}
 		return localLocs;
+	}
+
+	localLength(d, gLoc) {
+		var lgShape = this.dist[d].map((x) => this.grid.shape[x]);
+		var lgDim = lgShape.reduce(mult, 1);
+		var lgLoc = this.dist[d].map((x) => gLoc[x]);
+		var lgOwnerLoc = multilinear2linear(lgLoc, Shape2Strides(lgShape));
+
+		var maxLen = this.maxLength(d);
+		if (this.shape[d] % lgDim == 0)
+			return maxLen;
+		else
+			return lgOwnerLoc < (this.shape[d] % lgDim) ? maxLen : maxLen - 1;
+	}
+
+	localShape(gLoc) {
+		return Array.from({length: this.order}, (x, i) => this.localLength(i, gLoc));
 	}
 
 	maxLength(d) {
@@ -227,8 +309,9 @@ class Params {
 		if(!tensor.canRedist)
 			return;
 		console.log("Distributing");
-		reduceOrScatter = false; 
-		DistributeObjects(tensor.dist);
+		reduceOrScatter = false;
+		var tShape = parseIntArray(this.tShape);
+		DistributeObjects(parseIntArray(this.gShape), String2TensorDist(tShape.length, this.tDist));
 		tensor.haveDistributed = true;
 	}
 
@@ -238,29 +321,32 @@ class Params {
 		_.each(objsToRemove, function (object){ gblTensorScene.remove(object);});
 		render();
 
-		//Reset gui params
-		var params = ParseInput(this.tShape, this.gShape, this.tDist);
-		var grid = new Grid(parseIntArray(this.gShape));
+		redistButton.name(GetRedistButtonName(guiParams.commType));
+	}
 
+	visualize() {
+		this.clearScene();
+		var gShape = parseIntArray(this.gShape);
+		gShape = Array.from({length: gShape.length}, (x, i) => 1);
 		var tShape = parseIntArray(this.tShape);
-		tensor = new DistTensor(grid, tShape, String2TensorDist(tShape.length, this.tDist));
+		tensor = new DistTensor(gShape, tShape, String2TensorDist(tShape.length, this.tDist));
 		tensor.haveVisualized = false;
 		tensor.haveDistributed = false;
 		tensor.reduceOrScatter = false;
 		tensor.canRedist = true;
 
-		redistButton.name(GetRedistButtonName(guiParams.CommunicationType));
-	}
-
-	visualize() {
-		this.clearScene();
 		if(!tensor.canRedist)
 			return;
+	//	var vtShape = Array.from({length: tensor.order}, (x, i) => 1);
+	//	var visTensor = new DistTensor(vtShape, tensor.shape, tensor.dist);
+	//	visTensor.createCubes();
 		tensor.createCubes();
 		gblTensorScene.add(new THREE.AxesHelper(5));
 
 		tensor.visualize(); 
 		tensor.haveVisualized = true;
+	//	visTensor.visualize(); 
+	//	visTensor.haveVisualized = true;
 	}
 
 	redistribute() {
@@ -282,8 +368,8 @@ class Params {
 		switch(this.commType){
 			case 'rs': RedistributeRS(input1, resDist); break;
 			case 'ag': RedistributeAG(resDist); break;
-			case 'p2p': DistributeObjects(resDist); break;
-			case 'a2a': RedistributeA2A(resDist); break;
+			case 'p2p': DistributeObjects(parseIntArray(this.gShape), resDist); break;
+			case 'a2a': DistributeObjects(parseIntArray(this.gShape), resDist); break;
 		}
 		reduceOrScatter = !reduceOrScatter; 
 		redistButton.name(GetRedistButtonName(this.commType));
@@ -319,23 +405,17 @@ function onSceneMouseMove(event){
 
 //NOTE: For purposes of scene rendering, X axis in object is Y axis in scene
 //Maps a global location of the tensor to a location in the scene.
-function MapTensorLoc2SceneLoc(mapTen, loc) {
-	if (loc.length > 3)
+function MapTensorLoc2SceneLoc(mapTen, localLoc, owner) {
+	if (localLoc.length > 3)
 		alert("Can only support <=3-D tensors");
-
-	var owner = mapTen.owningProcs(loc);
-	owner = owner[0];
-
-	var localLoc = mapTen.localLoc(loc);
-	localLoc = localLoc.values().next().value;
 
 	var maxLens = mapTen.maxLengths();
 
-	var sceneLoc = Array(3).fill(cube_sz / 2.0);
+	var sceneLoc = Array.from({length: 3}, (x, i) => cube_sz / 2.0);
 
-	for(var i = 0; i < 3 && i < loc.length; i++){
+	for(var i = 0; i < 3 && i < localLoc.length; i++){
 		// Offset into proc
-		for (var j = i; j < mapTen.grid.shape.length; j += 3) {
+		for (var j = i; j < owner.length; j += 3) {
 			var gridLen = pad_elem + maxLens[j] * (cube_sz + pad_elem);
 			sceneLoc[i] += owner[j] > 0 ? owner[j] * (gridLen + pad_grid) : 0;
 		}
@@ -345,23 +425,39 @@ function MapTensorLoc2SceneLoc(mapTen, loc) {
 		}
 	}
 	// Permute for visual matching
+	console.log("sceneLoc: " + sceneLoc.toString());
 	return new THREE.Vector3(sceneLoc[1], sceneLoc[0], sceneLoc[2]);
 }
 
-function DistributeObjects(dist){
+function DistributeObjects(gShape, dist){
 	if(typeof dist  == 'undefined')
 		return;
 
-	var mapTen = new DistTensor(tensor.grid, tensor.shape, dist);
+	console.log(gShape.toString());
+	var mapTen = new DistTensor(gShape, tensor.shape, dist);
 	var tweens = [];
-	for(var loc of tensor.data.keys()) {
-		var cube = tensor.data.get(loc);
-		var fLoc = MapTensorLoc2SceneLoc(mapTen, loc);
+	console.log("dist: " + dist.toString());
+	for (var i = 0; i < tensor.nelem; i++) {
+		var dtLoc = linear2Multilinear(i, tensor.strides);
+
+		var tlLocs = tensor.localLocs(dtLoc);
+		var mtlLocs = mapTen.localLocs(dtLoc);
+		if (tlLocs.size != 1 || mtlLocs.size != 1) {
+			alert("Got to have fully distributed objects");
+		}
+
+		var tEntry = tlLocs.entries().next();
+		var mtEntry = mtlLocs.entries().next();
+		var cube = tensor.grid.getProc(tEntry.value[0]).getData(tEntry.value[1]);
+
+		var fLoc = MapTensorLoc2SceneLoc(mapTen, mtEntry.value[1], mtEntry.value[0]);
+//		console.log("loc: " + cLoc.toString() + " owner: " + oLoc.toString() + " floc: " + fLoc.x + "," + fLoc.y + "," + fLoc.z);
 		tweens.push(new TWEEN.Tween(cube.position)
 			.to(fLoc, 2000)
 			.easing(TWEEN.Easing.Exponential.Out)
 			.onComplete(CompleteTween));
 	}
+
 	numActiveTweens = tweens.length;
 	tensor.canRedist = false;
 
@@ -486,7 +582,7 @@ function GetRedistButtonName(commType){
 
 //Main code to run
 function runme(){
-	document.getElementById(tensorCanvasName).addEventListener('mousemove', onSceneMouseMove, false);
+//	document.getElementById(tensorCanvasName).addEventListener('mousemove', onSceneMouseMove, false);
 
 	//Initializing GUIs
 	var defaultInputs = {'ag': {input1: '0', input2: ''},
