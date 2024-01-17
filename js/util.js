@@ -1,7 +1,7 @@
 import {String2ModeDist, String2TensorDist} from './input.js';
 
 //Must not reuse grid modes and have modes in range
-export function CheckTensorDist(order, dist){
+export function CheckTensorDist(gOrder, dist){
 	var foundModes = [];
 
 	for(var i = 0; i < dist.length; i++){
@@ -11,7 +11,7 @@ export function CheckTensorDist(order, dist){
 				var msg = 'Malformed Tensor Distribution: Looks like you used mode ' + modeDist[j] + ' previously\n';
 				alert(msg);
 				return false;
-			}else if(modeDist[j] < 0 || modeDist[j] >= order){
+			}else if(modeDist[j] < 0 || modeDist[j] >= gOrder){
 				var msg = 'Malformed Tensor Distribution: Looks like mode ' + modeDist[j] + ' is out of range';
 				alert(msg);
 				return false;
@@ -90,7 +90,7 @@ export function GetHexColor(tensorShape, elemLoc) {
 }
 
 //Given a distribution, commType, and required input params, generates the resulting distribution
-export function GetResultingDist(order, tensorDist, commType, input1, input2, reduceOrScatter){
+export function GetResultingDist(gOrder, tOrder, tensorDist, commType, input1, input2, reduceOrScatter){
 	var undef;
 	var resDist = tensorDist.slice(0);
 
@@ -100,7 +100,7 @@ export function GetResultingDist(order, tensorDist, commType, input1, input2, re
 		if(isNaN(agMode)){
 			alert("Malformed Allgather Mode: Allgather Mode is NaN");
 			return undef;
-		}else if(agMode < 0 || agMode >= order){
+		}else if(agMode < 0 || agMode >= tOrder){
 			alert("Malformed Allgather Mode: Allgather Mode " + agMode + " is out of range");
 			return undef;
 		}
@@ -114,7 +114,7 @@ export function GetResultingDist(order, tensorDist, commType, input1, input2, re
 			if(isNaN(rMode)){
 				alert("Malformed Reduce Mode: Reduce Mode is NaN");
 				return undef;
-			}else if(rMode < 0 || rMode >= order){
+			}else if(rMode < 0 || rMode >= tOrder){
 				alert("Malformed Reduce Mode: Reduce Mode " + rMode + " is out of range");
 				return undef;
 			}
@@ -122,7 +122,7 @@ export function GetResultingDist(order, tensorDist, commType, input1, input2, re
 			if(isNaN(sMode)){
 				alert("Malformed Scatter Mode: Scatter Mode is NaN");
 				return undef;
-			}else if(sMode < 0 || sMode >= order){
+			}else if(sMode < 0 || sMode >= tOrder){
 				alert("Malformed Scatter Mode: Scatter Mode " + sMode + " is out of range");
 				return undef;
 			}
@@ -133,7 +133,7 @@ export function GetResultingDist(order, tensorDist, commType, input1, input2, re
 		resDist.splice(rMode, 1);
 	}else if(commType === 'p2p'){
 		var pMode = parseInt(input1, 10);
-		var mDist = String2ModeDist(order, input2);
+		var mDist = String2ModeDist(gOrder, tOrder, input2);
 
 		if(isNaN(pMode)){
 			alert("Malformed Permutation Mode: Permutation Mode is NaN");
@@ -148,7 +148,7 @@ export function GetResultingDist(order, tensorDist, commType, input1, input2, re
 		}
 		resDist[pMode] = mDist;
 	}else if(commType === 'a2a'){
-		var tDist = String2TensorDist(order, input1);
+		var tDist = String2TensorDist(gOrder, tOrder, input1);
 
 		if(typeof tDist == 'undefined'){
 			return undef;
@@ -156,7 +156,7 @@ export function GetResultingDist(order, tensorDist, commType, input1, input2, re
 		resDist = tDist;
 	}
 
-	if(!CheckTensorDist(order, resDist)){
+	if(!CheckTensorDist(gOrder, resDist)){
 		var undef;
 		return undef;
 	}

@@ -20,7 +20,7 @@ export function TensorDist2String(tenDist){
 	return msg;
 }
 
-export function String2TensorDist(order, distString){
+export function String2TensorDist(gOrder, order, distString){
 	var dist;
 	var startPos = 0;
 	var endPos = 0;
@@ -60,7 +60,7 @@ export function String2TensorDist(order, distString){
 		}
 	}
 
-	if(!CheckTensorDist(order, dist)){
+	if(!CheckTensorDist(gOrder, dist)){
 		var undef;
 		return undef;
 	}

@@ -314,10 +314,10 @@ class Params {
 		} 
 		if(!tensor.canRedist)
 			return;
-		console.log("Distributing");
 		reduceOrScatter = false;
 		var tShape = parseIntArray(this.tShape);
-		DistributeObjects(parseIntArray(this.gShape), String2TensorDist(tShape.length, this.tDist));
+		var gShape = parseIntArray(this.gShape);
+		RedistributeAG(gShape, String2TensorDist(gShape.length, tShape.length, this.tDist));
 		tensor.haveDistributed = true;
 	}
 
@@ -335,7 +335,7 @@ class Params {
 		var gShape = parseIntArray(this.gShape);
 		gShape = Array.from({length: gShape.length}, (x, i) => 1);
 		var tShape = parseIntArray(this.tShape);
-		tensor = new DistTensor(gShape, tShape, String2TensorDist(tShape.length, this.tDist));
+		tensor = new DistTensor(gShape, tShape, String2TensorDist(gShape.length, tShape.length, this.tDist));
 		tensor.haveVisualized = false;
 		tensor.haveDistributed = false;
 		tensor.reduceOrScatter = false;
@@ -360,16 +360,15 @@ class Params {
 		}
 		if(!tensor.canRedist)
 			return;
-		console.log("Redistributing");
-		var resDist = GetResultingDist(tensor.order, tensor.dist, this.commType, this.input1, this.input2, reduceOrScatter);
+		var resDist = GetResultingDist(tensor.grid.order, tensor.order, tensor.dist, this.commType, this.input1, this.input2, reduceOrScatter);
 		if((typeof resDist == 'undefined'))
 			return;
 
 		switch(this.commType){
 			case 'rs': RedistributeRS(parseInt(this.input1), parseIntArray(this.gShape), resDist); break;
 			case 'ag': RedistributeAG(parseIntArray(this.gShape), resDist); break;
-			case 'p2p': DistributeObjects(parseIntArray(this.gShape), resDist); break;
-			case 'a2a': DistributeObjects(parseIntArray(this.gShape), resDist); break;
+			case 'p2p': RedistributeAG(parseIntArray(this.gShape), resDist); break;
+			case 'a2a': RedistributeAG(parseIntArray(this.gShape), resDist); break;
 		}
 		reduceOrScatter = !reduceOrScatter; 
 		redistButton.name(GetRedistButtonName(this.commType));
@@ -419,19 +418,19 @@ function MapTensorLoc2SceneLoc(mapTen, localLoc, owner) {
 
 	var sceneLoc = Array.from({length: 3}, (x, i) => cube_sz / 2.0);
 
-	for(var i = 0; i < 3 && i < localLoc.length; i++){
-		// Offset into proc
-		for (var j = i; j < owner.length; j += 3) {
-			var gridLen = pad_elem + maxLens[j] * (cube_sz + pad_elem);
-			sceneLoc[i] += owner[j] > 0 ? owner[j] * (gridLen + pad_grid) : 0;
-		}
-		// Offset into grid
-		for (var j = i; j < localLoc.length; j += 3) {
-			sceneLoc[i] += localLoc[j] > 0 ? localLoc[j] * (cube_sz + pad_elem) : 0;
-		}
+	// Offset into proc
+	for (var j = 0; j < owner.length; j++) {
+		// Note: clean up
+		var maxLen = j < maxLens.length ? maxLens[j] : 1;
+		var gridLen = pad_elem + maxLen * (cube_sz + pad_elem);
+		sceneLoc[j%3] += owner[j] > 0 ? owner[j] * (gridLen + pad_grid) : 0;
 	}
+	// Offset into grid
+	for (var j = 0; j < localLoc.length; j++) {
+		sceneLoc[j%3] += localLoc[j] > 0 ? localLoc[j] * (cube_sz + pad_elem) : 0;
+	}
+
 	// Permute for visual matching
-	console.log("sceneLoc: " + sceneLoc.toString());
 	return new THREE.Vector3(sceneLoc[1], sceneLoc[0], sceneLoc[2]);
 }
 
@@ -478,37 +477,6 @@ function DistributeObjects(gShape, dist){
 		tween.start();
 }
 
-//When a tween of Reduce phase of ReduceScatter finished
-function CompleteReduceTween(){
-	var rMode = this.rMode;
-	var thisCube = this.obj;
-	var thisLoc = thisCube.tensorLoc;
-
-	//Remove all cubes that were there only for accumulation
-	var thisCubeIndex;
-	for(var i = 0; i < tensor.locs.length; i++){
-		if(thisLoc.toString() == tensorInfo.locs[i].toString()){
-			thisCubeIndex = i;
-			break;
-		}
-	}
-
-	if(thisLoc[rMode] != 0){
-		//Remove from list of locs and cubes
-		tensorInfo.locs.splice(thisCubeIndex, 1);
-
-		var cubeToRemove = tensorCubes.splice(thisCubeIndex, 1);
-		gblTensorScene.remove(cubeToRemove[0]);
-	}else{
-		tensorInfo.locs[thisCubeIndex].splice(rMode, 1);
-	}
-
-	//Enable gui functionality
-	numActiveTensorTweens -= 1;
-	if(numActiveTensorTweens == 0)
-		canRedistTensor = true;
-}
-
 //When a tween on the tensor side finishes
 function CompleteTween(){
 	//Enable gui functionality
@@ -517,28 +485,25 @@ function CompleteTween(){
 		tensor.canRedist = true;
 }
 
-function RedistributeRS(rMode, gShape, resDist) {
-
-	var mapTen = new DistTensor(gShape, tensor.shape, dist);
-	mapTen.createCubes();
-
+function RedistributeR(rMode, mapTen, fTen, gShape) {
 	var tweens = [];
 	for (var i = 0; i < tensor.nelem; i++) {
 		var dtLoc = linear2Multilinear(i, tensor.strides);
+		var ftLoc = Array.from(dtLoc);
+		ftLoc.splice(rMode);
 
-		var tlLocs = tensor.localLocs(dtLoc);
 		var mtlLocs = mapTen.localLocs(dtLoc);
-		if (tlLocs.size != 1) {
-			alert("Got to have fully distributed objects");
-		}
+		var flLocs = fTen.localLocs(ftLoc);
+		//if (flLocs.size != 1) {
+		//	alert("Got to have fully distributed objects");
+		//}
 
-		var tEntry = tlLocs.entries().next();
-		var tCube = tensor.grid.getProc(tEntry.value[0]).getData(tEntry.value[1]);
+		var ftEntry = flLocs.entries().next();
+		var ftCube = fTen.grid.getProc(ftEntry.value[0]).getData(ftEntry.value[1]);
 
 		for (const [oLoc, lLoc] of mtlLocs.entries()) {
 			var mtCube = mapTen.grid.getProc(oLoc).getData(lLoc);
-			var fLoc = new THREE.Vector3(mtCube.position.x, mtCube.position.y, mtCube.position.z);
-			mtCube.position.set(tCube.position.x, tCube.position.y, tCube.position.z);
+			var fLoc = new THREE.Vector3(ftCube.position.x, ftCube.position.y, ftCube.position.z);
 
 			tweens.push(new TWEEN.Tween(mtCube.position)
 				.to(fLoc, 2000)
@@ -555,24 +520,26 @@ function RedistributeRS(rMode, gShape, resDist) {
 	// Start the tweens
 	for (var tween of tweens)
 		tween.start();
-	if(!reduceOrScatter){
-		var rMode = parseInt(rModeStr);
-		if(isNaN(rMode)){
-			alert("Malformed Reduce Mode: Reduce Mode is NaN");
-			return;
-		}else if(rMode < 0 || rMode >= tensor.order){
-			alert("Malformed Reduce Mode: Reduce Mode " + rMode + " is out of range");
-			return;
-		}
+}
 
-		RedistributeR(rMode);
+function RedistributeRS(rMode, gShape, resDist) {
+	var mapTen = new DistTensor(gShape, tensor.shape, tensor.dist);
+	mapTen.createCubes();
 
-		//update global info
-		tensorInfo.shape.splice(rMode, 1);
-	}else{
-		render();
-		DistributeObjects(resDist);
-	}
+	var ftShape = Array.from(tensor.shape);
+	ftShape.splice(rMode);
+	var ftDist = Array.from(tensor.dist);
+	ftDist.splice(rMode);
+	var fTen = new DistTensor(gShape, ftShape, ftDist);
+	fTen.createCubes();
+
+	RedistributeR(rMode, mapTen, fTen, gShape);
+
+	fTen.visualize();
+	mapTen.clearCubes();
+	tensor = fTen;
+
+	RedistributeAG(gShape, resDist);
 }
 
 function RedistributeAG(gShape, dist){
@@ -585,9 +552,9 @@ function RedistributeAG(gShape, dist){
 
 		var tlLocs = tensor.localLocs(dtLoc);
 		var mtlLocs = mapTen.localLocs(dtLoc);
-		if (tlLocs.size != 1) {
-			alert("Got to have fully distributed objects");
-		}
+		//if (tlLocs.size != 1) {
+		//	alert("Got to have fully distributed objects");
+		//}
 
 		var tEntry = tlLocs.entries().next();
 		var tCube = tensor.grid.getProc(tEntry.value[0]).getData(tEntry.value[1]);
