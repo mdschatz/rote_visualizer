@@ -175,8 +175,7 @@ class DistTensor {
 						shininess: 2
 					}),
 				);
-				cube.name = loc.toString();
-				cube['tLoc'] = loc;
+				cube.name = gLoc.toString();
 
 				var sceneLoc = MapTensorLoc2SceneLoc(this, loc, owner);
 				cube.position.set(sceneLoc.x, sceneLoc.y, sceneLoc.z);
@@ -204,11 +203,7 @@ class DistTensor {
 
 	// Core methods
 	owningProcs(loc) {
-		var pLoc = new Map();
-		// Note: Clean this up
-		for (var d = 0; d < this.grid.shape.length; d++) {
-			pLoc.set(d, -1);
-		}
+		var pLoc = new Map(Array.from({length: this.grid.shape.length}, (x, i) => [i, -1]));
 
 		for (var d = 0; d < loc.length; d++) {
 			var i = loc[d];
@@ -221,7 +216,6 @@ class DistTensor {
 			var lp = i % lgDim;
 
 			var gLoc = linear2Multilinear(lp, Shape2Strides(lgShape));
-			console.log("mDist: " + mDist.toString() + " lp: " + lp + " gLoc: " + gLoc.toString());
 			for (var gD = 0; gD < gLoc.length; gD++) {
 				pLoc.set(mDist[gD], gLoc[gD]);
 			}
@@ -393,12 +387,18 @@ function onSceneMouseMove(event){
 	vector.unproject(gblTensorCamera);
 
 	var msg = 'Global Loc: ';
-	if(tensor.data.size > 0){
+	if(tensor.nelem > 0){
 		var raycaster = new THREE.Raycaster( gblTensorCamera.position, vector.sub( gblTensorCamera.position ).normalize() );
-		var intersects = raycaster.intersectObjects( [...tensor.data.values()] );
+		var cubes = [];
+		for (const [pLoc, p] of tensor.grid.procs.entries()) {
+			for (const [cLoc, c] of p.data.entries()) {
+				cubes.push(c);
+			}
+		}
+		var intersects = raycaster.intersectObjects( cubes );
 
 		if(intersects.length > 0){
-			msg += '(' + intersects[0].object.tLoc + ')';
+			msg += '(' + intersects[0].object.name + ')';
 		}
 
 	}
@@ -439,12 +439,10 @@ function DistributeObjects(gShape, dist){
 	if(typeof dist  == 'undefined')
 		return;
 
-	console.log(gShape.toString());
 	var mapTen = new DistTensor(gShape, tensor.shape, dist);
 	mapTen.createCubes();
 
 	var tweens = [];
-	console.log("dist: " + dist.toString());
 	for (var i = 0; i < tensor.nelem; i++) {
 		var dtLoc = linear2Multilinear(i, tensor.strides);
 
@@ -460,7 +458,6 @@ function DistributeObjects(gShape, dist){
 		var mtCube = mapTen.grid.getProc(mtEntry.value[0]).getData(mtEntry.value[1]);
 		var fLoc = new THREE.Vector3(mtCube.position.x, mtCube.position.y, mtCube.position.z);
 
-//		console.log("loc: " + cLoc.toString() + " owner: " + oLoc.toString() + " floc: " + fLoc.x + "," + fLoc.y + "," + fLoc.z);
 		mtCube.position.set(tCube.position.x, tCube.position.y, tCube.position.z);
 		mtCube.material.copy(tCube.material);
 
@@ -631,7 +628,7 @@ function GetRedistButtonName(commType){
 
 //Main code to run
 function runme(){
-//	document.getElementById(tensorCanvasName).addEventListener('mousemove', onSceneMouseMove, false);
+	document.getElementById(tensorCanvasName).addEventListener('mousemove', onSceneMouseMove, false);
 
 	//Initializing GUIs
 	var defaultInputs = {'ag': {input1: '0', input2: ''},
