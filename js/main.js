@@ -49,6 +49,8 @@ var numActiveTweens;
 var canRedistTensor = true;
 
 var tensor;
+var itensor;
+var irsDist;
 
 function linear2Multilinear(i, strides) {
 	var remainder = i;
@@ -354,10 +356,6 @@ class Params {
 			alert("You must visualize the grid and tensor first"); 
 			return;
 		} 
-		if(!tensor.haveDistributed){
-			alert("You must distribute the tensor first"); 
-			return;
-		}
 		if(!tensor.canRedist)
 			return;
 		var resDist = GetResultingDist(tensor.grid.order, tensor.order, tensor.dist, this.commType, this.input1, this.input2, reduceOrScatter);
@@ -447,9 +445,9 @@ function DistributeObjects(gShape, dist){
 
 		var tlLocs = tensor.localLocs(dtLoc);
 		var mtlLocs = mapTen.localLocs(dtLoc);
-		if (tlLocs.size != 1 || mtlLocs.size != 1) {
-			alert("Got to have fully distributed objects");
-		}
+//		if (tlLocs.size != 1 || mtlLocs.size != 1) {
+//			alert("Got to have fully distributed objects");
+//		}
 
 		var tEntry = tlLocs.entries().next();
 		var mtEntry = mtlLocs.entries().next();
@@ -478,6 +476,16 @@ function DistributeObjects(gShape, dist){
 }
 
 //When a tween on the tensor side finishes
+function RCompleteTween(){
+	//Enable gui functionality
+	numActiveTweens -= 1;
+	if(numActiveTweens == 0) {
+		tensor.canRedist = true;
+		itensor.clearCubes();
+	}
+}
+
+//When a tween on the tensor side finishes
 function CompleteTween(){
 	//Enable gui functionality
 	numActiveTweens -= 1;
@@ -485,12 +493,24 @@ function CompleteTween(){
 		tensor.canRedist = true;
 }
 
-function RedistributeR(rMode, mapTen, fTen, gShape) {
+function RedistributeR(rMode, gShape) {
+	// Pre-Reduce
+	var mapTen = new DistTensor(gShape, tensor.shape, tensor.dist);
+	mapTen.createCubes();
+
+	// Post-Reduce
+	var ftShape = Array.from(tensor.shape);
+	ftShape.splice(rMode, 1);
+	var ftDist = Array.from(tensor.dist);
+	ftDist.splice(rMode, 1);
+	var fTen = new DistTensor(gShape, ftShape, ftDist);
+	fTen.createCubes();
+
 	var tweens = [];
 	for (var i = 0; i < tensor.nelem; i++) {
 		var dtLoc = linear2Multilinear(i, tensor.strides);
 		var ftLoc = Array.from(dtLoc);
-		ftLoc.splice(rMode);
+		ftLoc.splice(rMode, 1);
 
 		var mtlLocs = mapTen.localLocs(dtLoc);
 		var flLocs = fTen.localLocs(ftLoc);
@@ -508,7 +528,7 @@ function RedistributeR(rMode, mapTen, fTen, gShape) {
 			tweens.push(new TWEEN.Tween(mtCube.position)
 				.to(fLoc, 2000)
 				.easing(TWEEN.Easing.Exponential.Out)
-				.onComplete(CompleteTween));
+				.onComplete(RCompleteTween));
 		}
 	}
 	numActiveTweens = tweens.length;
@@ -516,6 +536,9 @@ function RedistributeR(rMode, mapTen, fTen, gShape) {
 
 	mapTen.visualize();
 	tensor.clearCubes();
+	itensor = mapTen;
+	tensor = fTen;
+	fTen.visualize();
 
 	// Start the tweens
 	for (var tween of tweens)
@@ -523,23 +546,12 @@ function RedistributeR(rMode, mapTen, fTen, gShape) {
 }
 
 function RedistributeRS(rMode, gShape, resDist) {
-	var mapTen = new DistTensor(gShape, tensor.shape, tensor.dist);
-	mapTen.createCubes();
-
-	var ftShape = Array.from(tensor.shape);
-	ftShape.splice(rMode);
-	var ftDist = Array.from(tensor.dist);
-	ftDist.splice(rMode);
-	var fTen = new DistTensor(gShape, ftShape, ftDist);
-	fTen.createCubes();
-
-	RedistributeR(rMode, mapTen, fTen, gShape);
-
-	fTen.visualize();
-	mapTen.clearCubes();
-	tensor = fTen;
-
-	RedistributeAG(gShape, resDist);
+	if (!reduceOrScatter) {
+		RedistributeR(rMode, gShape);
+		irsDist = resDist;
+	} else {
+		DistributeObjects(gShape, irsDist);
+	}
 }
 
 function RedistributeAG(gShape, dist){
