@@ -119,6 +119,7 @@ class Grid {
 		this.type = 'Grid';
 		this.shape = Array.from(shape);
 		this.strides = Shape2Strides(this.shape);
+		this.order = this.shape.length;
 		this.nprocs = shape.reduce(mult, 1);
 		this.procs = new Map();
 
