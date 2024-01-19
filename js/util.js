@@ -133,12 +133,12 @@ export function GetResultingDist(gOrder, tOrder, tensorDist, commType, input1, i
 		resDist.splice(rMode, 1);
 	}else if(commType === 'p2p'){
 		var pMode = parseInt(input1, 10);
-		var mDist = String2ModeDist(gOrder, tOrder, input2);
+		var mDist = String2ModeDist(tOrder, input2);
 
 		if(isNaN(pMode)){
 			alert("Malformed Permutation Mode: Permutation Mode is NaN");
 			return undef;
-		}else if(pMode < 0 || pMode >= order){
+		}else if(pMode < 0 || pMode >= tOrder){
 			alert("Malformed Permutation Mode: Permutation Mode " + pMode + " is out of range");
 			return undef;
 		}
