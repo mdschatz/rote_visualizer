@@ -121,6 +121,7 @@ class Grid {
 		this.strides = Shape2Strides(this.shape);
 		this.order = this.shape.length;
 		this.nprocs = shape.reduce(mult, 1);
+		this.procCubes = new Map();
 		this.procs = new Map();
 
 		var gStrides = Shape2Strides(this.shape);
@@ -184,6 +185,49 @@ class DistTensor {
 				this.grid.getProc(owner).setData(loc, cube);
 			}
 		}
+
+		// Init proc cubes
+		var scenePerm = [1, 0, 2];
+		var maxLens = this.maxLengths();
+		for(var p = 0; p < this.grid.nprocs; p++) {
+			var pLoc = linear2Multilinear(p, this.grid.strides);
+			var pos = Array.from({length: 3}, (x, i) => 0);
+			var sz = Array.from({length: 3}, (x, i) => 0);
+			for (var j = 0; j < pLoc.length; j++) {
+				var maxLen = j < maxLens.length ? maxLens[j] : 1;
+				var gridLen = pad_elem + maxLen * (cube_sz + pad_elem);
+				pos[j%3] += pLoc[j] > 0 ? pLoc[j] * (gridLen + pad_grid) : 0;
+				sz[j%3] += gridLen;
+			}
+			for (var j = pLoc.length; j < 3; j++) {
+				sz[j] += 2 * pad_elem + cube_sz;
+			}
+			var c_sz = Array.from(scenePerm, (x, i) => sz[x]);
+			var cubeColor = new THREE.Color(64, 64, 64);
+			var cube = new THREE.Mesh(
+				new THREE.BoxGeometry(c_sz[0], c_sz[1], c_sz[2]),
+				new THREE.MeshPhongMaterial({
+					color: cubeColor,
+					specular: cubeColor,
+					transparent: true,
+					opacity: 0.5,
+					shininess: 2
+				}),
+			);
+			cube.name = pLoc.toString();
+			cube.material.visible = false;
+
+			var loc = Array.from({length: maxLens.length}, (x, i) => 0);
+			var sceneLoc = MapTensorLoc2SceneLoc(this, loc, pLoc);
+			sceneLoc.x += c_sz[0] / 2.0 - cube_sz;
+			sceneLoc.y += c_sz[1] / 2.0 - cube_sz;
+			sceneLoc.z += c_sz[2] / 2.0 - cube_sz;
+			console.log("ploc: " + pLoc.toString() + " sceneLoc: " + sceneLoc.x + " " + sceneLoc.y + " " + sceneLoc.z);
+			console.log("ploc: " + pLoc.toString() + " sz: " + sz.toString());
+			console.log("ploc: " + pLoc.toString() + " maxLens: " + maxLens.toString());
+			cube.position.set(sceneLoc.x, sceneLoc.y, sceneLoc.z);
+			this.grid.procCubes.set(p, cube);
+		}
 	}
 
 	clearCubes() {
@@ -192,6 +236,9 @@ class DistTensor {
 				gblTensorScene.remove(cube);
 			}
 		}
+		for (const [pLoc, c] of this.grid.procCubes.entries()) {
+			gblTensorScene.remove(c);
+		}
 	}
 
 	visualize() {
@@ -199,6 +246,9 @@ class DistTensor {
 			for (const [cLoc, cube] of p.data.entries()) {
 				gblTensorScene.add(cube);
 			}
+		}
+		for (const [pLoc, c] of this.grid.procCubes.entries()) {
+			gblTensorScene.add(c);
 		}
 		this.haveVisualized = true;
 	}
@@ -380,7 +430,6 @@ function onSceneMouseMove(event){
 		return;
 
 	var vector = new THREE.Vector3( (( event.clientX -this.offsetLeft) / tensorCanvasWidth ) * 2 - 1, - ( (event.clientY - this.offsetTop)/ tensorCanvasHeight ) * 2 + 1, 0.5 );
-
 	vector.unproject(gblTensorCamera);
 
 	var msg = 'Global Loc: ';
@@ -400,6 +449,27 @@ function onSceneMouseMove(event){
 
 	}
 
+	vector = new THREE.Vector3( (( event.clientX -this.offsetLeft) / tensorCanvasWidth ) * 2 - 1, - ( (event.clientY - this.offsetTop)/ tensorCanvasHeight ) * 2 + 1, 0.5 );
+	vector.unproject(gblTensorCamera);
+
+
+	msg += ' Grid Loc: ';
+	if (tensor.grid.nprocs > 0) {
+		var raycaster = new THREE.Raycaster( gblTensorCamera.position, vector.sub( gblTensorCamera.position ).normalize() );
+		var cubes = [];
+		for (const [p, c] of tensor.grid.procCubes.entries()) {
+			cubes.push(c);
+		}
+		var intersects = raycaster.intersectObjects( cubes );
+
+		for(var cube of cubes) {
+			cube.material.visible = false;
+		}
+		if(intersects.length > 0){
+			msg += '(' + intersects[0].object.name + ')';
+			intersects[0].object.material.visible = true;
+		}
+	}
 	selectedTensorElem.textContent = msg;
 
 	//Update which tensor dist we are viewing
