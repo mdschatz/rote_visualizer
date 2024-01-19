@@ -49,8 +49,7 @@ var numActiveTweens;
 var canRedistTensor = true;
 
 var tensor;
-var itensor;
-var irsDist;
+var itensor = null;
 
 function linear2Multilinear(i, strides) {
 	var remainder = i;
@@ -285,7 +284,7 @@ class DistTensor {
 
 	maxLengths() {
 		var lens = [];
-		lens.length = tensor.order;
+		lens.length = this.order;
 
 		for (var d = 0; d < this.order; d++) {
 			lens[d] = this.maxLength(d);
@@ -423,7 +422,7 @@ function MapTensorLoc2SceneLoc(mapTen, localLoc, owner) {
 		var gridLen = pad_elem + maxLen * (cube_sz + pad_elem);
 		sceneLoc[j%3] += owner[j] > 0 ? owner[j] * (gridLen + pad_grid) : 0;
 	}
-	// Offset into grid
+	// Offset into elem
 	for (var j = 0; j < localLoc.length; j++) {
 		sceneLoc[j%3] += localLoc[j] > 0 ? localLoc[j] * (cube_sz + pad_elem) : 0;
 	}
@@ -476,24 +475,19 @@ function DistributeObjects(gShape, dist){
 }
 
 //When a tween on the tensor side finishes
-function RCompleteTween(){
+function CompleteTween(){
 	//Enable gui functionality
 	numActiveTweens -= 1;
 	if(numActiveTweens == 0) {
 		tensor.canRedist = true;
-		itensor.clearCubes();
+		if (itensor != null) {
+			itensor.clearCubes();
+			itensor = null;
+		}
 	}
 }
 
-//When a tween on the tensor side finishes
-function CompleteTween(){
-	//Enable gui functionality
-	numActiveTweens -= 1;
-	if(numActiveTweens == 0)
-		tensor.canRedist = true;
-}
-
-function RedistributeR(rMode, gShape) {
+function RedistributeRS(rMode, gShape, resDist) {
 	// Pre-Reduce
 	var mapTen = new DistTensor(gShape, tensor.shape, tensor.dist);
 	mapTen.createCubes();
@@ -503,7 +497,7 @@ function RedistributeR(rMode, gShape) {
 	ftShape.splice(rMode, 1);
 	var ftDist = Array.from(tensor.dist);
 	ftDist.splice(rMode, 1);
-	var fTen = new DistTensor(gShape, ftShape, ftDist);
+	var fTen = new DistTensor(gShape, ftShape, resDist);
 	fTen.createCubes();
 
 	var tweens = [];
@@ -528,7 +522,7 @@ function RedistributeR(rMode, gShape) {
 			tweens.push(new TWEEN.Tween(mtCube.position)
 				.to(fLoc, 2000)
 				.easing(TWEEN.Easing.Exponential.Out)
-				.onComplete(RCompleteTween));
+				.onComplete(CompleteTween));
 		}
 	}
 	numActiveTweens = tweens.length;
@@ -543,15 +537,6 @@ function RedistributeR(rMode, gShape) {
 	// Start the tweens
 	for (var tween of tweens)
 		tween.start();
-}
-
-function RedistributeRS(rMode, gShape, resDist) {
-	if (!reduceOrScatter) {
-		RedistributeR(rMode, gShape);
-		irsDist = resDist;
-	} else {
-		DistributeObjects(gShape, irsDist);
-	}
 }
 
 function RedistributeAG(gShape, dist){
