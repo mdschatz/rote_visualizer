@@ -42,9 +42,6 @@ var guiParams;
 //Tensor and grid being displayed
 var tensorCubes = [];
 
-//Should we visualize a reduction or a scatter? (false == reduce)
-var reduceOrScatter = false;
-
 var numActiveTweens;
 var canRedistTensor = true;
 
@@ -366,7 +363,6 @@ class Params {
 		} 
 		if(!tensor.canRedist)
 			return;
-		reduceOrScatter = false;
 		var tShape = parseIntArray(this.tShape);
 		var gShape = parseIntArray(this.gShape);
 		RedistributeAG(gShape, String2TensorDist(gShape.length, tShape.length, this.tDist));
@@ -390,7 +386,6 @@ class Params {
 		tensor = new DistTensor(gShape, tShape, String2TensorDist(gShape.length, tShape.length, this.tDist));
 		tensor.haveVisualized = false;
 		tensor.haveDistributed = false;
-		tensor.reduceOrScatter = false;
 		tensor.canRedist = true;
 
 		if(!tensor.canRedist)
@@ -408,7 +403,7 @@ class Params {
 		} 
 		if(!tensor.canRedist)
 			return;
-		var resDist = GetResultingDist(tensor.grid.order, tensor.order, tensor.dist, this.commType, this.input1, this.input2, reduceOrScatter);
+		var resDist = GetResultingDist(tensor.grid.order, tensor.order, tensor.dist, this.commType, this.input1, this.input2);
 		if((typeof resDist == 'undefined'))
 			return;
 
@@ -418,7 +413,6 @@ class Params {
 			case 'p2p': RedistributeAG(parseIntArray(this.gShape), resDist); break;
 			case 'a2a': RedistributeAG(parseIntArray(this.gShape), resDist); break;
 		}
-		reduceOrScatter = !reduceOrScatter; 
 		redistButton.name(GetRedistButtonName(this.commType));
 	}
 }
@@ -654,7 +648,7 @@ function RedistributeAG(gShape, dist){
 //What to display on the Redist button
 function GetRedistButtonName(commType){
 	switch(commType){
-		case 'rs': return ((!reduceOrScatter) ? 'Reduce' : 'Scatter');
+		case 'rs': return 'Reduce-scatter';
 		case 'ag': return 'Allgather';
 		case 'p2p': return 'Peer-to-peer';
 		case 'a2a': return 'All-to-all';

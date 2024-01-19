@@ -90,7 +90,7 @@ export function GetHexColor(tensorShape, elemLoc) {
 }
 
 //Given a distribution, commType, and required input params, generates the resulting distribution
-export function GetResultingDist(gOrder, tOrder, tensorDist, commType, input1, input2, reduceOrScatter){
+export function GetResultingDist(gOrder, tOrder, tensorDist, commType, input1, input2){
 	var undef;
 	var resDist = tensorDist.slice(0);
 
@@ -110,22 +110,20 @@ export function GetResultingDist(gOrder, tOrder, tensorDist, commType, input1, i
 		var rMode = parseInt(input1, 10);
 		var sMode = parseInt(input2, 10);
 
-		if(!reduceOrScatter){	
-			if(isNaN(rMode)){
-				alert("Malformed Reduce Mode: Reduce Mode is NaN");
-				return undef;
-			}else if(rMode < 0 || rMode >= tOrder){
-				alert("Malformed Reduce Mode: Reduce Mode " + rMode + " is out of range");
-				return undef;
-			}
-		
-			if(isNaN(sMode)){
-				alert("Malformed Scatter Mode: Scatter Mode is NaN");
-				return undef;
-			}else if(sMode < 0 || sMode >= tOrder){
-				alert("Malformed Scatter Mode: Scatter Mode " + sMode + " is out of range");
-				return undef;
-			}
+		if(isNaN(rMode)){
+			alert("Malformed Reduce Mode: Reduce Mode is NaN");
+			return undef;
+		}else if(rMode < 0 || rMode >= tOrder){
+			alert("Malformed Reduce Mode: Reduce Mode " + rMode + " is out of range");
+			return undef;
+		}
+	
+		if(isNaN(sMode)){
+			alert("Malformed Scatter Mode: Scatter Mode is NaN");
+			return undef;
+		}else if(sMode < 0 || sMode >= tOrder){
+			alert("Malformed Scatter Mode: Scatter Mode " + sMode + " is out of range");
+			return undef;
 		}
 	
 		var newModeDist = resDist[sMode].concat(resDist[rMode]);
