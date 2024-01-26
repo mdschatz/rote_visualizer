@@ -22,10 +22,6 @@ export var pad_elem = 0.5;
 export var pad_grid = 6;
 export var growth_elem = 2;
 export var growth_grid = 1.2;
-export var interGridHigherDimPad = 6;
-export var interGridHigherDimPadGrowthFactor = 1.2;
-export var interElemHigherDimPad = .5;
-export var interElemHigherDimPadGrowthFactor = 2;
 //Size of the cube representing an element
 export var cube_sz = 1;
 
@@ -35,25 +31,25 @@ export var cube_sz = 1;
 
 //Containers on the page
 
-export var tensorCanvasName = 'container1';
-var jqTensorCanvasName = '#' + tensorCanvasName;
+export var canvasName = 'container1';
+var jqCanvasName = '#' + canvasName;
 
 //Screen sizes
-export var tensorCanvasStart = $(jqTensorCanvasName).offset();
-export var tensorCanvasHeight = $(jqTensorCanvasName).height();
-export var tensorCanvasWidth = $(jqTensorCanvasName).width();
+export var canvasStart = $(jqCanvasName).offset();
+export var canvasHeight = $(jqCanvasName).height();
+export var canvasWidth = $(jqCanvasName).width();
 
 //Necessary objects in the scene
-export var gblTensorScene = new THREE.Scene();
-gblTensorScene.background = new THREE.Color(0x000000);
-export var gblTensorCamera = new THREE.PerspectiveCamera( 75, tensorCanvasWidth / tensorCanvasHeight, 1, 1600 );
-gblTensorCamera.up = new THREE.Vector3(0, -1, 0);
-gblTensorCamera.position.z = -30;
+export var gblScene = new THREE.Scene();
+gblScene.background = new THREE.Color(0x000000);
+export var gblCamera = new THREE.PerspectiveCamera( 75, canvasWidth / canvasHeight, 1, 1600 );
+gblCamera.up = new THREE.Vector3(0, -1, 0);
+gblCamera.position.z = -30;
 
-export var tensorRenderer = new THREE.WebGLRenderer();
-tensorRenderer.setSize( tensorCanvasWidth, tensorCanvasHeight);
+export var renderer = new THREE.WebGLRenderer();
+renderer.setSize( canvasWidth, canvasHeight);
 
-document.getElementById(tensorCanvasName).appendChild( tensorRenderer.domElement );
+document.getElementById(canvasName).appendChild( renderer.domElement );
 
 export var tensorDistInfo = document.createElement('div');
 tensorDistInfo.id = 'textSelectedElem';
@@ -62,7 +58,7 @@ tensorDistInfo.style.position = 'absolute';
 tensorDistInfo.style.top = '0px';
 tensorDistInfo.style.left = '0px';
 tensorDistInfo.innerHTML = 'Tensor Distribution: '
-document.getElementById(tensorCanvasName).appendChild(tensorDistInfo);
+document.getElementById(canvasName).appendChild(tensorDistInfo);
 
 export var selectedTensorElem = document.createElement('div');
 selectedTensorElem.id = 'textSelectedElem';
@@ -71,20 +67,20 @@ selectedTensorElem.style.position = 'absolute';
 selectedTensorElem.style.top = '20px';
 selectedTensorElem.style.left = '0px';
 selectedTensorElem.innerHTML = 'Global Loc: '
-document.getElementById(tensorCanvasName).appendChild(selectedTensorElem);
+document.getElementById(canvasName).appendChild(selectedTensorElem);
 
 //Controllers
-export var tensorControls = new OrbitControls(gblTensorCamera, tensorRenderer.domElement);
+export var sceneControls = new OrbitControls(gblCamera, renderer.domElement);
 
 //Lights
-export var tensorPointLight = new THREE.AmbientLight(0xffffff);
-gblTensorScene.add(tensorPointLight);
+export var scenePointLight = new THREE.AmbientLight(0xffffff);
+gblScene.add(scenePointLight);
 
 //Rendering functions
 export var render = function () {
-	tensorControls.update();
+	sceneControls.update();
 
-	tensorRenderer.render(gblTensorScene, gblTensorCamera);
+	renderer.render(gblScene, gblCamera);
 };
 
 export function animate() {

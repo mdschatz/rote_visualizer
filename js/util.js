@@ -4,18 +4,18 @@ import {String2ModeDist, String2TensorDist} from './input.js';
 export function CheckTensorDist(gOrder, dist){
 	var foundModes = [];
 
-	for(var i = 0; i < dist.length; i++){
+	for(var i = 0; i < dist.length; i++) {
 		var modeDist = dist[i];
-		for(var j = 0; j < modeDist.length; j++){
-			if(foundModes.indexOf(modeDist[j]) != -1){
+		for(var j = 0; j < modeDist.length; j++) {
+			if(foundModes.indexOf(modeDist[j]) != -1) {
 				var msg = 'Malformed Tensor Distribution: Looks like you used mode ' + modeDist[j] + ' previously\n';
 				alert(msg);
 				return false;
-			}else if(modeDist[j] < 0 || modeDist[j] >= gOrder){
+			} else if(modeDist[j] < 0 || modeDist[j] >= gOrder) {
 				var msg = 'Malformed Tensor Distribution: Looks like mode ' + modeDist[j] + ' is out of range';
 				alert(msg);
 				return false;
-			}else{
+			} else {
 				foundModes.push(modeDist[j]);
 			}
 		}
@@ -27,7 +27,31 @@ export function mult(a,b){
 	return a*b;
 }
 
-export function Shape2Strides(shape){
+export function linear2multi(i, strides) {
+	var remainder = i;
+	var loc = [];
+	loc.length = strides.length;
+
+	for (var j = strides.length - 1; j >= 0; j--) {
+		var dLoc = Math.floor(remainder / strides[j]);
+		remainder -= dLoc * strides[j];
+		loc[j] = dLoc;
+	}
+	return loc;
+}
+
+export function multi2linear(loc, strides) {
+	if (typeof loc == "number")
+		return loc;
+
+	var linLoc = 0;
+	for (var i = 0; i < loc.length; i++) {
+		linLoc += loc[i] * strides[i];
+	}
+	return linLoc;
+}
+
+export function shape2strides(shape){
 	var strides = [];
 	strides.length = shape.length;
 	strides[0] = 1;
@@ -43,46 +67,18 @@ export function GetHexColor(tensorShape, elemLoc) {
 	ret.length = 3;
 
 	//Map the mD Loc and shape to 3D
-	var shape3D = [];
-	var loc3D = [];
-	var stride3D = [];
-
-	//NOTE: Can probably do this with a slice
-	shape3D.push(tensorShape[0]);
-	loc3D.push(elemLoc[0]);
-	stride3D.push(tensorShape[0]);
-	if(tensorShape.length > 1){
-		shape3D.push(tensorShape[1]);
-		loc3D.push(elemLoc[1]);
-		stride3D.push(tensorShape[1]);
-	}
-	if(tensorShape.length > 2){
-		shape3D.push(tensorShape[2]);
-		loc3D.push(elemLoc[2]);
-		stride3D.push(tensorShape[2]);
-	}
+	var shape3D = Array.from(tensorShape.slice(0, 3));
+	var loc3D = Array.from(elemLoc.slice(0, 3));
+	var stride3D = Array.from(tensorShape.slice(0, 3));
 
 	for(var i = 3; i < elemLoc.length; i+=3){
 		var updateIndex = i % 3;
-		shape3D[updateIndex] *= tensorShape[i];
-		loc3D[updateIndex] += stride3D[updateIndex]*elemLoc[i];
-		stride3D[updateIndex] *= tensorShape[i];
-
-		if(i+1 < elemLoc.length){
-			shape3D[updateIndex+1] *= tensorShape[i+1];
-			loc3D[updateIndex+1] += stride3D[updateIndex+1]*elemLoc[i+1];
-			stride3D[updateIndex+1] *= tensorShape[i+1];
-		}
-		if(i+2 < elemLoc.length){
-			shape3D[updateIndex+2] *= tensorShape[i+2];
-			loc3D[updateIndex+2] += stride3D[updateIndex+2]*elemLoc[i+2];
-			stride3D[updateIndex+2] *= tensorShape[i+2];
-		}
+		shape3D[i % 3] *= tensorShape[i];
+		loc3D[i % 3] += stride3D[updateIndex]*elemLoc[i];
+		stride3D[i % 3] *= tensorShape[i];
 	}
 
-	for(var i = 0; i < 3; i++){
-		if(i >= shape3D.length)
-			break;
+	for(var i = 0; i < shape3D.length; i++){
 		ret[i] = 1-(1/256*Math.floor(256/shape3D[i]) * loc3D[i]);
 	}
 	
