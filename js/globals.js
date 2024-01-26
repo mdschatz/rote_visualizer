@@ -10,10 +10,10 @@ import $ from 'jquery';
 //GUI-related globals
 
 export var guiInputStrings = {
-	ag:  {input1: 'Mode',              input2: 'IGNORE'},
-	rs:  {input1: 'Reduce Mode',       input2: 'Scatter Mode'},
-	p2p: {input1: 'Permute Mode',      input2: 'Mode Dist'},
-	a2a: {input1: 'Final tensor dist', input2: 'IGNORE'}
+	ag:  {input1: 'tMode',               input2: ''},
+	rs:  {input1: 'Reduce tMode',        input2: 'Scatter tMode'},
+	p2p: {input1: 'Permute tMode',       input2: 'mDist'},
+	a2a: {input1: 'Final tDist',         input2: ''},
 };
 
 //Rendering constants
@@ -73,8 +73,7 @@ document.getElementById(canvasName).appendChild(selectedTensorElem);
 export var sceneControls = new OrbitControls(gblCamera, renderer.domElement);
 
 //Lights
-export var scenePointLight = new THREE.AmbientLight(0xffffff);
-gblScene.add(scenePointLight);
+gblScene.add(new THREE.AmbientLight(0xffffff));
 
 //Rendering functions
 export var render = function () {

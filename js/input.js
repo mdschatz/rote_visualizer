@@ -99,13 +99,3 @@ export function String2ModeDist(order, distString){
 export function parseIntArray(str) {
 	return str.split(",").map(function (x){return parseInt(x);});
 }
-
-export function ParseInput(tensorShapeString, gridShapeString, tensorDistString){
-	var gridShape = parseIntArray(gridShapeString);
-	var tensorShape = parseIntArray(tensorShapeString);
-
-	var params = {	"gridShape": gridShape,
-		      	"tensorShape": tensorShape,
-		     };
-	return params;
-}
