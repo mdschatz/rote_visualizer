@@ -7,23 +7,6 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import $ from 'jquery';
 
-//GUI-related globals
-
-export var guiInputStrings = {
-	ag:  {input1: 'tMode',               input2: ''},
-	rs:  {input1: 'Reduce tMode',        input2: 'Scatter tMode'},
-	p2p: {input1: 'Permute tMode',       input2: 'mDist'},
-	a2a: {input1: 'Final tDist',         input2: ''},
-};
-
-//Rendering constants
-//Space between higher dimensions and their growth factors (when mapping multiple modes to 1)
-export var pad_elem = 0.5;
-export var pad_grid = 6;
-export var growth_elem = 2;
-export var growth_grid = 1.2;
-//Size of the cube representing an element
-export var cube_sz = 1;
 
 ////////////////////////////////////////////
 ////////    Scene Rending info   ///////////
@@ -35,7 +18,6 @@ export var canvasName = 'container1';
 var jqCanvasName = '#' + canvasName;
 
 //Screen sizes
-export var canvasStart = $(jqCanvasName).offset();
 export var canvasHeight = $(jqCanvasName).height();
 export var canvasWidth = $(jqCanvasName).width();
 

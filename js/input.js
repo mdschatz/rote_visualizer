@@ -2,22 +2,39 @@
 /// Input
 /////////////////////////
 
-import {CheckTensorDist} from './util.js';
-
 //Regex for Mode Dist
 var modeDistRegex = "\\((\\s*\\d*\\s*)(\\s*,\\s*\\d*\\s*)*\\)";
 
-export function TensorDist2String(tenDist){
-	var msg = '';
-	if(tenDist.length > 0){
-		msg += '[';
-		msg += ModeDist2String(tenDist[0]);
+export function validMode(m, order) {
+	return !(isNaN(m) || m < 0 || m >= order);
+}
 
-		for(var i = 1; i < tenDist.length; i++)
-			msg += ', ' + ModeDist2String(tenDist[i]);
-		msg += ']';
+//Must not reuse grid modes and have modes in range
+export function CheckTensorDist(gOrder, tDist) {
+	var seenModes = new Set();
+
+	for(const mDist of tDist) {
+		for(const gMode of mDist) {
+			if(seenModes.has(gMode)) {
+				alert(
+					'Malformed Tensor Distribution: Looks like you used mode ' + gMode + ' previously\n'
+				);
+				return false;
+			}
+			if(!validMode(gMode, gOrder)) {
+				alert(
+					'Malformed Tensor Distribution: Looks like mode ' + gMode + ' is out of range'
+				);
+				return false;
+			}
+			seenModes.add(gMode);
+		}
 	}
-	return msg;
+	return true;
+}
+
+export function TensorDist2String(tDist) {
+	return '[' + tDist.map(ModeDist2String).join(', ') + ']';
 }
 
 export function String2TensorDist(gOrder, order, distString){
@@ -28,21 +45,13 @@ export function String2TensorDist(gOrder, order, distString){
 	var regexString = "\\[\\s*" + modeDistRegex + "(\\s*,\\s*" + modeDistRegex + "\\s*){" + (order - 1) + "}" + "\\]";
 	var regex = new RegExp(regexString);
 
-	if(!regex.test(distString)){
+	if(!regex.test(distString)) {
 		var msg = 'Malformed Tensor Distribution string: Must match pattern: ' + regexString + '\n';
-		msg += 'For example: [(0)';
+		msg += 'For example: [' + Array.from({length: order}, (x, i) => '(' + i + ')').join(', ') + ']\n';
 
-		for(var i = 1; i < order; i++)
-			msg += ', (' + i + ')';
-		msg += ']\n';
-
-		msg += 'or: [()';
-
-		for(var i = 1; i < order; i++)
-			msg += ', ()';
-		msg += ']';
+		msg += 'or: [' + Array.from({length: order}, (x, i) => '()').join(', ') + ']';
 		alert(msg);
-	}else{
+	} else {
 		dist = [];
 		//Create regex to match against:
 		startPos = distString.indexOf("(", endPos);
@@ -79,12 +88,8 @@ export function String2ModeDist(order, distString){
 	if(!regex.test(distString)){
 		var msg = 'Malformed Mode Distribution string: Must match pattern: ' + modeDistRegex + '\n';
 		msg += 'For example: (0)\n';
-
-		msg += 'or: (0';
-
-		for(var i = 1; i < order; i++)
-			msg += ', ' + i;
-		msg += ')';
+		msg += 'or: (' + [...Array(order).keys()].join(', ') + ')';
+		alert(msg);
 
 		return dist;
 	}
@@ -93,9 +98,9 @@ export function String2ModeDist(order, distString){
 	if(data[0] == "")
 		return [];
 	else
-		return data.map(function(x){return parseInt(x, 10);});
+		return data.map(x => parseInt(x));
 }
 
 export function parseIntArray(str) {
-	return str.split(",").map(function (x){return parseInt(x);});
+	return str.split(",").map(x => parseInt(x));
 }

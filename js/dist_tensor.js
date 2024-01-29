@@ -1,11 +1,6 @@
 import { 
-	cube_sz,
 	gblScene,
 	gblCamera,
-	pad_elem,
-	pad_grid,
-	growth_elem,
-	growth_grid,
 } from './globals.js';
 import * as THREE from 'three';
 import {
@@ -17,8 +12,17 @@ import {
 } from './util.js';
 import * as TWEEN from '@tweenjs/tween.js'
 
-var numActiveTweens;
+//Rendering constants
+//Space between higher dimensions and their growth factors (when mapping multiple modes to 1)
+var pad_elem = 0.5;
+var pad_grid = 6;
+var growth_elem = 2;
+var growth_grid = 1.2;
+//Size of the cube representing an element
+var cube_sz = 1;
 
+
+var numActiveTweens;
 var tensor;
 var itensor = null;
 
@@ -295,6 +299,7 @@ export class DistTensor {
 
 		var lgDim = lgShape.reduce(mult, 1);
 		var maxLen = this.maxLength(d);
+
 		if (this.shape[d] % lgDim == 0)
 			return maxLen;
 		else
@@ -311,13 +316,7 @@ export class DistTensor {
 	}
 
 	maxLengths() {
-		var lens = [];
-		lens.length = this.order;
-
-		for (var d = 0; d < this.order; d++) {
-			lens[d] = this.maxLength(d);
-		}
-		return lens;
+		return Array.from({length: this.order}, (x, i) => this.maxLength(i));
 	}
 }
 

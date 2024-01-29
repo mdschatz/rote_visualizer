@@ -12,7 +12,6 @@ import {
 	canvasName,
 	gblScene,
 	gblCamera,
-	guiInputStrings,
 	render,
 	sceneControls,
 	selectedTensorElem,
@@ -35,6 +34,13 @@ var gui;
 var redistGui;
 var redistButton;
 var guiParams;
+var guiInputStrings = {
+	ag:  {input1: 'tMode',               input2: ''},
+	rs:  {input1: 'Reduce tMode',        input2: 'Scatter tMode'},
+	p2p: {input1: 'Permute tMode',       input2: 'mDist'},
+	a2a: {input1: 'Final tDist',         input2: ''},
+};
+
 
 class Params {
 	constructor() {
@@ -67,7 +73,7 @@ class Params {
 	clearScene(){
 		//Clear tensor info
 		var objsToRemove = _.rest(gblScene.children, 1);
-		_.each(objsToRemove, function (object){ gblScene.remove(object);});
+		_.each(objsToRemove, o => gblScene.remove(o));
 		render();
 
 		redistButton.name(GetRedistButtonName(guiParams.commType));
@@ -134,7 +140,7 @@ function onSceneMouseMove(event) {
 	vector.unproject(gblCamera);
 
 	var msg = 'Global Loc: ';
-	if(tensor.nelem > 0){
+	if(tensor.nelem > 0) {
 		var raycaster = new THREE.Raycaster( gblCamera.position, vector.sub( gblCamera.position ).normalize() );
 		var cubes = [];
 		for (const [pLoc, p] of tensor.grid.procs.entries()) {
@@ -144,7 +150,7 @@ function onSceneMouseMove(event) {
 		}
 		var intersects = raycaster.intersectObjects( cubes );
 
-		if(intersects.length > 0){
+		if(intersects.length > 0) {
 			msg += '(' + intersects[0].object.name + ')';
 		}
 
@@ -166,7 +172,7 @@ function onSceneMouseMove(event) {
 		for(var cube of cubes) {
 			cube.material.visible = false;
 		}
-		if(intersects.length > 0){
+		if(intersects.length > 0) {
 			msg += '(' + intersects[0].object.name + ')';
 			intersects[0].object.material.visible = true;
 		}

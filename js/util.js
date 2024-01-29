@@ -1,27 +1,4 @@
-import {String2ModeDist, String2TensorDist} from './input.js';
-
-//Must not reuse grid modes and have modes in range
-export function CheckTensorDist(gOrder, dist){
-	var foundModes = [];
-
-	for(var i = 0; i < dist.length; i++) {
-		var modeDist = dist[i];
-		for(var j = 0; j < modeDist.length; j++) {
-			if(foundModes.indexOf(modeDist[j]) != -1) {
-				var msg = 'Malformed Tensor Distribution: Looks like you used mode ' + modeDist[j] + ' previously\n';
-				alert(msg);
-				return false;
-			} else if(modeDist[j] < 0 || modeDist[j] >= gOrder) {
-				var msg = 'Malformed Tensor Distribution: Looks like mode ' + modeDist[j] + ' is out of range';
-				alert(msg);
-				return false;
-			} else {
-				foundModes.push(modeDist[j]);
-			}
-		}
-	}
-	return true;
-}
+import {CheckTensorDist, String2ModeDist, String2TensorDist, validMode} from './input.js';
 
 export function mult(a,b){
 	return a*b;
@@ -43,12 +20,7 @@ export function linear2multi(i, strides) {
 export function multi2linear(loc, strides) {
 	if (typeof loc == "number")
 		return loc;
-
-	var linLoc = 0;
-	for (var i = 0; i < loc.length; i++) {
-		linLoc += loc[i] * strides[i];
-	}
-	return linLoc;
+	return [...Array(loc.length).keys()].reduce((a, c) => a + loc[c] * strides[c], 0);
 }
 
 export function shape2strides(shape){
@@ -77,12 +49,7 @@ export function GetHexColor(tensorShape, elemLoc) {
 		loc3D[i % 3] += stride3D[updateIndex]*elemLoc[i];
 		stride3D[i % 3] *= tensorShape[i];
 	}
-
-	for(var i = 0; i < shape3D.length; i++){
-		ret[i] = 1-(1/256*Math.floor(256/shape3D[i]) * loc3D[i]);
-	}
-	
-	return ret;
+	return Array.from({length: 3}, (x, i) => 1 - (1/256.0*Math.floor(256/shape3D[i]) * loc3D[i]));
 }
 
 //Given a distribution, commType, and required input params, generates the resulting distribution
@@ -90,69 +57,51 @@ export function GetResultingDist(gOrder, tOrder, tensorDist, commType, input1, i
 	var undef;
 	var resDist = tensorDist.slice(0);
 
-	if(commType === 'ag'){
-		var agMode = parseInt(input1, 10);
+	if(commType === 'ag') {
+		var agMode = parseInt(input1);
 
-		if(isNaN(agMode)){
-			alert("Malformed Allgather Mode: Allgather Mode is NaN");
-			return undef;
-		}else if(agMode < 0 || agMode >= tOrder){
+		if(!validMode(agMode, tOrder)){
 			alert("Malformed Allgather Mode: Allgather Mode " + agMode + " is out of range");
 			return undef;
 		}
 
 		resDist[agMode] = [];
-	}else if(commType === 'rs'){
-		var rMode = parseInt(input1, 10);
-		var sMode = parseInt(input2, 10);
+		return resDist;
+	}
+	if(commType === 'rs') {
+		var rMode = parseInt(input1);
+		var sMode = parseInt(input2);
 
-		if(isNaN(rMode)){
-			alert("Malformed Reduce Mode: Reduce Mode is NaN");
-			return undef;
-		}else if(rMode < 0 || rMode >= tOrder){
+		if(!validMode(rMode)) {
 			alert("Malformed Reduce Mode: Reduce Mode " + rMode + " is out of range");
 			return undef;
 		}
 	
-		if(isNaN(sMode)){
-			alert("Malformed Scatter Mode: Scatter Mode is NaN");
-			return undef;
-		}else if(sMode < 0 || sMode >= tOrder){
+		if(!validMode(sMode)) {
 			alert("Malformed Scatter Mode: Scatter Mode " + sMode + " is out of range");
 			return undef;
 		}
 	
-		var newModeDist = resDist[sMode].concat(resDist[rMode]);
-		resDist[sMode] = newModeDist;
+		resDist[sMode] = resDist[sMode].concat(resDist[rMode]);
 		resDist.splice(rMode, 1);
-	}else if(commType === 'p2p'){
-		var pMode = parseInt(input1, 10);
+		return resDist;
+	}
+	if(commType === 'p2p') {
+		var pMode = parseInt(input1);
 		var mDist = String2ModeDist(tOrder, input2);
 
-		if(isNaN(pMode)){
-			alert("Malformed Permutation Mode: Permutation Mode is NaN");
-			return undef;
-		}else if(pMode < 0 || pMode >= tOrder){
+		if(!validMode(pMode)) {
 			alert("Malformed Permutation Mode: Permutation Mode " + pMode + " is out of range");
 			return undef;
 		}
 
-		if(typeof mDist == 'undefined'){
+		if(typeof mDist == 'undefined') {
 			return undef;
 		}
 		resDist[pMode] = mDist;
-	}else if(commType === 'a2a'){
-		var tDist = String2TensorDist(gOrder, tOrder, input1);
-
-		if(typeof tDist == 'undefined'){
-			return undef;
-		}
-		resDist = tDist;
+		return resDist;
 	}
-
-	if(!CheckTensorDist(gOrder, resDist)){
-		var undef;
-		return undef;
+	if(commType === 'a2a') {
+		return String2TensorDist(gOrder, tOrder, input1);
 	}
-	return resDist;
 }
